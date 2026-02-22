@@ -379,6 +379,9 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
 
     /// @notice Settles the auction with the Vickrey winner and price computed by the CRE enclave.
     function _settleAuction(bytes32 auctionId, address winner, uint256 price) internal {
+        if (auctionId != activeAuctionId) {
+            revert SealBidAuction__AuctionNotFound();
+        }
         Auction storage a = auctions[auctionId];
         if (a.deadline == 0) {
             revert SealBidAuction__AuctionNotFound();
