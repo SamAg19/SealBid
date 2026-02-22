@@ -1,0 +1,12 @@
+{
+  "schedule": "*/30 * * * * *",
+  "url": "TODO: https://<your-api-host>",
+  "owner": "",
+  "evms": [
+    {
+      "chainSelectorName": "ethereum-testnet-sepolia",
+      "contractAddress": "TODO: 0x<SealBidAuction-address>",
+      "gasLimit": "500000"
+    }
+  ]
+}
