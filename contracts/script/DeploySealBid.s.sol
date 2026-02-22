@@ -36,13 +36,14 @@ contract DeploySealBid is Script {
         console.log("SealBidRWAToken deployed:", address(rwaToken));
 
         // 4. Deploy SealBidAuction
+        // forwarder: use CHAINLINK_FORWARDER_ADDRESS env var if set, otherwise deployer (for local testing)
+        address forwarderAddress = vm.envOr("CHAINLINK_FORWARDER_ADDRESS", msg.sender);
         SealBidAuction auction = new SealBidAuction(
-            msg.sender, // forwarder (temporary — update to CRE address later)
+            forwarderAddress,
             address(rwaToken),
             address(mockUsdc),
             IWorldID(address(mockWorldId)),
             appId,
-            "mint_rwa",
             "deposit_to_pool"
         );
         console.log("SealBidAuction deployed:", address(auction));

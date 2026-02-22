@@ -23,14 +23,12 @@
 
 pragma solidity ^0.8.24;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {
-    ReentrancyGuard
-} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IWorldID} from "./interfaces/IWorldID.sol";
 import {ISealBidRWAToken} from "./interfaces/ISealBidRWAToken.sol";
 import {ByteHasher} from "./libraries/ByteHasher.sol";
+import {ReceiverTemplate} from "./ReceiverTemplate.sol";
 
 /**
  * @title SealBidAuction
@@ -43,27 +41,46 @@ import {ByteHasher} from "./libraries/ByteHasher.sol";
  * - Multi-token deposit pool: supports SRWA (18 decimals) and USDC (6 decimals),
  *   extensible to additional tokens via owner. Pool is auction-blind — deposits
  *   carry no auction reference, so observers cannot link deposits to specific auctions.
- * - World ID integration: real on-chain ZK proof verification via Router. Both RWA
- *   minting and pool deposits require World ID — one human, one action (sybil resistance).
- *   Two separate actions: "mint_rwa" and "deposit_to_pool".
- * - RWA token minting: forwarder-only, World ID gated. Users with existing USDC skip this.
- * - Auction lifecycle: forwarder-only bid registration and settlement. Only opaque bid
- *   hashes stored on-chain during auction. Settlement reveals only winner + Vickrey price.
+ * - World ID integration: real on-chain ZK proof verification via Router. Pool
+ *   deposits require World ID — one human, one deposit (sybil resistance).
+ * - RWA token minting: trusted via Chainlink CRE DON consensus + KeystoneForwarder.
+ * - Auction lifecycle: CRE-only bid registration and settlement via onReport.
+ *   Only opaque bid hashes stored on-chain during auction. Settlement reveals
+ *   only winner + Vickrey price.
  * - Privacy: bid amounts, bidder identities, and losing bids are never exposed on-chain.
  *   Multi-token support adds obfuscation — observers can't tell which token type maps
  *   to which auction.
  *
- * @notice Forwarder-gated functions (mintRWATokens, registerBid, settleAuction) are
- * called exclusively via Chainlink CRE workflows operating inside a secure enclave.
+ * @notice CRE workflows deliver signed reports via the KeystoneForwarder, which calls
+ * onReport on this contract. Dispatch is based on the workflowName field in the
+ * report metadata (set in each workflow's yaml `name` field):
+ *   "mint"   → _mintRWATokens
+ *   "bid"    → _registerBid
+ *   "settle" → _settleAuction
+ *
+ * Workflow report encodings:
+ *   mint:   abi.encode(uint8 instructionType, address account, uint256 amount, bytes32 bankRef)
+ *   bid:    abi.encode(bytes32 auctionId, bytes32 bidHash)
+ *   settle: abi.encode(bytes32 auctionId, address winner, uint256 price)
  */
-contract SealBidAuction is Ownable, ReentrancyGuard {
+contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     using ByteHasher for bytes;
+
+    ///////////////////
+    // Workflow Name Constants (bytes10)
+    // Encoding: SHA256(name) → 64-char hex string → first 10 hex chars → hex-encode those ASCII chars → bytes10
+    // "mint"   → 0x64633666313762626563
+    // "bid"    → 0x63306530656663346663
+    // "settle" → 0x36383638653833646533
+    ///////////////////
+    bytes10 private constant WORKFLOW_MINT   = bytes10(0x64633666313762626563);
+    bytes10 private constant WORKFLOW_BID    = bytes10(0x63306530656663346663);
+    bytes10 private constant WORKFLOW_SETTLE = bytes10(0x36383638653833646533);
 
     ///////////////////
     // Errors
     ///////////////////
     error SealBidAuction__InvalidNullifier();
-    error SealBidAuction__NotForwarder();
     error SealBidAuction__TokenNotAccepted();
     error SealBidAuction__FixedAmountOnly();
     error SealBidAuction__LockMustBeInFuture();
@@ -78,6 +95,8 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
     error SealBidAuction__AuctionAlreadySettled();
     error SealBidAuction__WinnerUnderfunded();
     error SealBidAuction__CanOnlyExtendLock();
+    error SealBidAuction__UnknownWorkflow(bytes10 workflowName);
+    error SealBidAuction__UnknownInstructionType(uint8 instructionType);
 
     ///////////////////
     // Type Declarations
@@ -97,7 +116,6 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
     ///////////////////
     IWorldID public immutable i_worldId;
     uint256 public immutable i_groupId = 1;
-    uint256 public immutable i_mintExternalNullifierHash;
     uint256 public immutable i_depositExternalNullifierHash;
     mapping(uint256 => bool) public nullifierHashes;
 
@@ -111,9 +129,10 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
     mapping(address => uint256) public lockExpiry;
 
     // Auction Lifecycle
-    address public forwarder;
     mapping(bytes32 => Auction) public auctions;
     mapping(bytes32 => bytes32[]) public bidHashes;
+
+    bytes32 public activeAuctionId;
 
     ///////////////////
     // Events
@@ -145,20 +164,6 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
         address winner,
         uint256 price
     );
-    event ForwarderUpdated(
-        address indexed oldForwarder,
-        address indexed newForwarder
-    );
-
-    ///////////////////
-    // Modifiers
-    ///////////////////
-    modifier onlyForwarder() {
-        if (msg.sender != forwarder) {
-            revert SealBidAuction__NotForwarder();
-        }
-        _;
-    }
 
     ///////////////////
     // Functions
@@ -169,16 +174,11 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
         address _usdc,
         IWorldID _worldId,
         string memory _appId,
-        string memory _mintAction,
         string memory _depositAction
-    ) Ownable(msg.sender) {
-        forwarder = _forwarder;
+    ) ReceiverTemplate(_forwarder) {
         rwaToken = _rwaToken;
         i_worldId = _worldId;
 
-        i_mintExternalNullifierHash = abi
-            .encodePacked(abi.encodePacked(_appId).hashToField(), _mintAction)
-            .hashToField();
         i_depositExternalNullifierHash = abi
             .encodePacked(
                 abi.encodePacked(_appId).hashToField(),
@@ -198,11 +198,6 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
     ///////////////////
     // External Functions
     ///////////////////
-    function setForwarder(address _forwarder) external onlyOwner {
-        emit ForwarderUpdated(forwarder, _forwarder);
-        forwarder = _forwarder;
-    }
-
     function addAcceptedToken(
         address token,
         uint256 _escrowAmount
@@ -210,31 +205,6 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
         acceptedTokens[token] = true;
         escrowAmount[token] = _escrowAmount;
         emit TokenAccepted(token, _escrowAmount);
-    }
-
-    function mintRWATokens(
-        address to,
-        uint256 amount,
-        uint256 root,
-        uint256 nullifierHash,
-        uint256[8] calldata proof
-    ) external onlyForwarder {
-        if (nullifierHashes[nullifierHash]) {
-            revert SealBidAuction__InvalidNullifier();
-        }
-
-        i_worldId.verifyProof(
-            root,
-            i_groupId,
-            abi.encodePacked(to).hashToField(),
-            nullifierHash,
-            i_mintExternalNullifierHash,
-            proof
-        );
-
-        nullifierHashes[nullifierHash] = true;
-        ISealBidRWAToken(rwaToken).mint(to, amount);
-        emit RWATokensMinted(to, amount);
     }
 
     function depositToPool(
@@ -325,6 +295,9 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
         if (!acceptedTokens[token]) {
             revert SealBidAuction__TokenNotAccepted();
         }
+        if (activeAuctionId != bytes32(0)) {
+            revert SealBidAuction__AuctionAlreadyExists();
+        }
 
         auctions[auctionId] = Auction({
             seller: msg.sender,
@@ -336,6 +309,8 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
             settledPrice: 0
         });
 
+        activeAuctionId = auctionId;
+
         emit AuctionCreated(
             auctionId,
             msg.sender,
@@ -345,10 +320,48 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
         );
     }
 
-    function registerBid(
-        bytes32 auctionId,
-        bytes32 bidHash
-    ) external onlyForwarder {
+    ///////////////////
+    // Internal Functions
+    ///////////////////
+
+    /// @notice Dispatches CRE reports to the correct handler using the workflowName from metadata.
+    /// @dev workflowName is bytes10 encoded per CRE spec: SHA256(name) → hex string → first 10
+    ///      hex chars → hex-encode those ASCII chars. Workflow yaml `name` fields must be set to
+    ///      "mint", "bid", or "settle" respectively.
+    function _processReport(bytes calldata metadata, bytes calldata report) internal override {
+        (, bytes10 workflowName,) = _decodeMetadata(metadata);
+
+        if (workflowName == WORKFLOW_MINT) {
+            (uint8 instructionType, address account, uint256 amount,) =
+                abi.decode(report, (uint8, address, uint256, bytes32));
+            if (instructionType != 1) {
+                revert SealBidAuction__UnknownInstructionType(instructionType);
+            }
+            _mintRWATokens(account, amount);
+
+        } else if (workflowName == WORKFLOW_BID) {
+            (bytes32 auctionId, bytes32 bidHash) =
+                abi.decode(report, (bytes32, bytes32));
+            _registerBid(auctionId, bidHash);
+
+        } else if (workflowName == WORKFLOW_SETTLE) {
+            (bytes32 auctionId, address winner, uint256 price) =
+                abi.decode(report, (bytes32, address, uint256));
+            _settleAuction(auctionId, winner, price);
+
+        } else {
+            revert SealBidAuction__UnknownWorkflow(workflowName);
+        }
+    }
+
+    /// @notice Mints RWA tokens to a recipient. Trusted via CRE DON consensus + KeystoneForwarder.
+    function _mintRWATokens(address to, uint256 amount) internal {
+        ISealBidRWAToken(rwaToken).mint(to, amount);
+        emit RWATokensMinted(to, amount);
+    }
+
+    /// @notice Registers an opaque bid hash on-chain for the given auction.
+    function _registerBid(bytes32 auctionId, bytes32 bidHash) internal {
         Auction storage a = auctions[auctionId];
         if (a.deadline == 0) {
             revert SealBidAuction__AuctionNotFound();
@@ -364,12 +377,8 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
         emit BidRegistered(auctionId, bidHash);
     }
 
-    function settleAuction(
-        bytes32 auctionId,
-        address winner,
-        uint256 price,
-        bytes32 proof
-    ) external onlyForwarder {
+    /// @notice Settles the auction with the Vickrey winner and price computed by the CRE enclave.
+    function _settleAuction(bytes32 auctionId, address winner, uint256 price) internal {
         Auction storage a = auctions[auctionId];
         if (a.deadline == 0) {
             revert SealBidAuction__AuctionNotFound();
@@ -389,6 +398,8 @@ contract SealBidAuction is Ownable, ReentrancyGuard {
         a.settledPrice = price;
 
         poolBalance[winner][a.token] -= price;
+
+        activeAuctionId = bytes32(0);
 
         if (!IERC20(a.token).transfer(a.seller, price)) {
             revert SealBidAuction__TransferFailed();
