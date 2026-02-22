@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { getAuction, getBids, settleAuctionInStore } from "../lib/store";
 import { settleVickrey } from "../lib/vickrey";
+import { getAuctionOnChain } from "../lib/chain";
 
 const router = Router();
 
@@ -19,7 +20,7 @@ const router = Router();
  *   proof: string (HMAC hex)
  * }
  */
-router.post("/", (req: Request, res: Response): void => {
+router.post("/", async (req: Request, res: Response): Promise<void> => {
   try {
     const { auctionId } = req.body;
 
@@ -47,9 +48,18 @@ router.post("/", (req: Request, res: Response): void => {
       return;
     }
 
+    // --- Fetch reserve price from chain ---
+    let reservePrice: bigint;
+    try {
+      const onChainAuction = await getAuctionOnChain(auctionId);
+      reservePrice = onChainAuction.reservePrice;
+    } catch (err) {
+      res.status(400).json({ error: "Auction not found on-chain" });
+      return;
+    }
+
     // --- Run Vickrey settlement ---
     const hmacKey = process.env.HMAC_KEY || "default-hmac-key";
-    const reservePrice = BigInt(0); // TODO: get from auction config
 
     const result = settleVickrey(bids, reservePrice, hmacKey);
 

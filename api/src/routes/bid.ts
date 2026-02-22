@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { verifyBidSignature, computeBidHash } from "../lib/eip712";
 import { storeBid, getOrCreateAuction } from "../lib/store";
+import { getPoolBalance, getLockExpiry, getAuctionOnChain } from "../lib/chain";
 
 const router = Router();
 
@@ -18,9 +19,9 @@ const router = Router();
  *   auctionDeadline: number (unix timestamp)
  * }
  *
- * Returns: { bidHash: string, timestamp: number }
+ * Returns: { auctionId: string, bidHash: string }
  */
-router.post("/", (req: Request, res: Response): void => {
+router.post("/", async (req: Request, res: Response): Promise<void> => {
   try {
     const { auctionId, bidder, amount, nonce, signature, auctionDeadline } =
       req.body;
@@ -88,6 +89,39 @@ router.post("/", (req: Request, res: Response): void => {
       return;
     }
 
+    // --- On-chain eligibility checks ---
+    let onChainAuction: Awaited<ReturnType<typeof getAuctionOnChain>>;
+    try {
+      onChainAuction = await getAuctionOnChain(auctionId);
+    } catch (err) {
+      res.status(400).json({ error: "Auction not found on-chain" });
+      return;
+    }
+
+    if (onChainAuction.settled) {
+      res.status(400).json({ error: "Auction already settled on-chain" });
+      return;
+    }
+
+    const bidAmountBn = BigInt(amount);
+
+    if (bidAmountBn < onChainAuction.reservePrice) {
+      res.status(400).json({ error: "Bid below reserve price" });
+      return;
+    }
+
+    const balance = await getPoolBalance(bidder, onChainAuction.token);
+    if (balance < bidAmountBn) {
+      res.status(400).json({ error: "Insufficient pool balance" });
+      return;
+    }
+
+    const expiry = await getLockExpiry(bidder);
+    if (expiry < onChainAuction.deadline) {
+      res.status(400).json({ error: "Lock expires before auction deadline" });
+      return;
+    }
+
     // --- Compute bid hash ---
     const bidHash = computeBidHash({ auctionId, bidder, amount, nonce });
     const timestamp = Math.floor(Date.now() / 1000);
@@ -112,7 +146,7 @@ router.post("/", (req: Request, res: Response): void => {
       `[BID] auction=${auctionId.slice(0, 10)}... bidder=${bidder.slice(0, 10)}... hash=${bidHash.slice(0, 10)}...`
     );
 
-    res.status(200).json({ bidHash, timestamp });
+    res.status(200).json({ auctionId, bidHash });
   } catch (err) {
     console.error("[BID] Unexpected error:", err);
     res.status(500).json({ error: "Internal server error" });

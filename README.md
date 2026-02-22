@@ -89,7 +89,7 @@ SealBid implements a **Vickrey (second-price) sealed-bid auction** where the hig
 │     → Confidential HTTP: POST /settle               │
 │       (encryptOutput: true, AES-GCM)               │
 │     → EVM Write: settleAuction(                     │
-│         auctionId, winner, price, proof)            │
+│         auctionId, winner, price)            │
 │                                                     │
 └──────────────┬──────────────────────────────────────┘
                │
