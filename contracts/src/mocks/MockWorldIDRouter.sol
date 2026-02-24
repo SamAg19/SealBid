@@ -23,7 +23,7 @@
 
 pragma solidity ^0.8.24;
 
-contract MockWorldIDRouter{
+contract MockWorldIDRouter {
     function verifyProof(
         uint256,  // root
         uint256,  // groupId
@@ -31,5 +31,5 @@ contract MockWorldIDRouter{
         uint256,  // nullifierHash
         uint256,  // externalNullifierHash
         uint256[8] calldata  // proof
-    ) external pure {}
+    ) external view {}
 }

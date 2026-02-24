@@ -20,24 +20,31 @@ contract DeploySealBid is Script {
     {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         string memory appId = vm.envString("WORLD_ID_APP_ID");
+        address deployer = vm.addr(deployerKey);
+
+        console.log("=== SealBid Deployment ===");
+        console.log("Deployer:", deployer);
+        console.log("World ID App ID:", appId);
 
         vm.startBroadcast(deployerKey);
 
         // 1. Deploy MockWorldIDRouter
         MockWorldIDRouter mockWorldId = new MockWorldIDRouter();
-        console.log("MockWorldIDRouter deployed:", address(mockWorldId));
+        console.log("\n[1/4] MockWorldIDRouter deployed:", address(mockWorldId));
 
         // 2. Deploy MockUSDC
         MockUSDC mockUsdc = new MockUSDC();
-        console.log("MockUSDC deployed:", address(mockUsdc));
+        console.log("[2/4] MockUSDC deployed:", address(mockUsdc));
 
         // 3. Deploy SealBidRWAToken (deployer as temporary minter)
-        SealBidRWAToken rwaToken = new SealBidRWAToken(msg.sender);
-        console.log("SealBidRWAToken deployed:", address(rwaToken));
+        SealBidRWAToken rwaToken = new SealBidRWAToken(deployer);
+        console.log("[3/4] SealBidRWAToken deployed:", address(rwaToken));
 
         // 4. Deploy SealBidAuction
         // forwarder: use CHAINLINK_FORWARDER_ADDRESS env var if set, otherwise deployer (for local testing)
-        address forwarderAddress = vm.envOr("CHAINLINK_FORWARDER_ADDRESS", msg.sender);
+        address forwarderAddress = vm.envOr("CHAINLINK_FORWARDER_ADDRESS", deployer);
+        console.log("Using forwarder address:", forwarderAddress);
+
         SealBidAuction auction = new SealBidAuction(
             forwarderAddress,
             address(rwaToken),
@@ -46,13 +53,22 @@ contract DeploySealBid is Script {
             appId,
             "deposit_to_pool"
         );
-        console.log("SealBidAuction deployed:", address(auction));
+        console.log("[4/4] SealBidAuction deployed:", address(auction));
 
         // 5. Wire: auction contract becomes the minter for RWA token
         rwaToken.setMinter(address(auction));
-        console.log("RWAToken minter set to:", address(auction));
+        console.log("\nRWAToken minter set to SealBidAuction");
 
         vm.stopBroadcast();
+
+        // Print summary for easy copy-paste
+        console.log("\n=== Deployment Summary ===");
+        console.log("MOCK_WORLD_ID_ADDRESS=%s", address(mockWorldId));
+        console.log("MOCK_USDC_ADDRESS=%s", address(mockUsdc));
+        console.log("SRWA_TOKEN_ADDRESS=%s", address(rwaToken));
+        console.log("SEAL_BID_AUCTION_ADDRESS=%s", address(auction));
+        console.log("FORWARDER_ADDRESS=%s", forwarderAddress);
+        console.log("==========================\n");
 
         return (mockWorldId, mockUsdc, rwaToken, auction);
     }
