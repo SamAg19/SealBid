@@ -4,7 +4,8 @@
   "main": "dist/main.js",
   "private": true,
   "scripts": {
-    "postinstall": "bun x cre-setup"
+    "postinstall": "bun x cre-setup",
+    "cre-compile": "bun x cre-compile"
   },
   "license": "UNLICENSED",
   "dependencies": {

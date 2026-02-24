@@ -18,16 +18,21 @@ contract DeploySealBid is Script {
     {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         string memory appId = vm.envString("WORLD_ID_APP_ID");
+        address deployer = vm.addr(deployerKey);
+
+        console.log("=== SealBid Deployment ===");
+        console.log("Deployer:", deployer);
+        console.log("World ID App ID:", appId);
 
         vm.startBroadcast(deployerKey);
 
         // 1. Deploy MockWorldIDRouter
         MockWorldIDRouter mockWorldId = new MockWorldIDRouter();
-        console.log("MockWorldIDRouter deployed:", address(mockWorldId));
+        console.log("\n[1/4] MockWorldIDRouter deployed:", address(mockWorldId));
 
         // 2. Deploy MockUSDC
         MockUSDC mockUsdc = new MockUSDC();
-        console.log("MockUSDC deployed:", address(mockUsdc));
+        console.log("[2/4] MockUSDC deployed:", address(mockUsdc));
 
         // 3. Deploy SealBidAuction
         // Property share tokens are deployed on-demand via the CRE create-auction workflow.
@@ -43,6 +48,13 @@ contract DeploySealBid is Script {
         console.log("SealBidAuction deployed:", address(auction));
 
         vm.stopBroadcast();
+        // Print summary for easy copy-paste
+        console.log("\n=== Deployment Summary ===");
+        console.log("MOCK_WORLD_ID_ADDRESS=%s", address(mockWorldId));
+        console.log("MOCK_USDC_ADDRESS=%s", address(mockUsdc));
+        console.log("SEAL_BID_AUCTION_ADDRESS=%s", address(auction));
+        console.log("FORWARDER_ADDRESS=%s", forwarderAddress);
+        console.log("==========================\n");
 
         return (mockWorldId, mockUsdc, auction);
     }
