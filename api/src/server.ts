@@ -5,6 +5,7 @@ import { authMiddleware } from "./lib/auth";
 import bidRouter from "./routes/bid";
 import settleRouter from "./routes/settle";
 import statusRouter from "./routes/status";
+import verifyPropertyRouter from "./routes/verifyProperty";
 
 dotenv.config();
 
@@ -24,14 +25,16 @@ app.get("/health", (_req, res) => {
 app.use("/bid", authMiddleware, bidRouter);
 app.use("/settle", authMiddleware, settleRouter);
 app.use("/status", authMiddleware, statusRouter);
+app.use("/verify-property", authMiddleware, verifyPropertyRouter);
 
 // --- Start server ---
 app.listen(PORT, () => {
   console.log(`\n SealBid API running on port ${PORT}`);
-  console.log(`   POST /bid       — Submit a signed bid`);
-  console.log(`   POST /settle    — Run Vickrey settlement`);
-  console.log(`   GET  /status/:id — Auction status`);
-  console.log(`   GET  /health    — Health check\n`);
+  console.log(`   POST /bid              — Submit a signed bid`);
+  console.log(`   POST /settle           — Run Vickrey settlement`);
+  console.log(`   GET  /status/:id       — Auction status`);
+  console.log(`   POST /verify-property  — Verify property for tokenization`);
+  console.log(`   GET  /health           — Health check\n`);
 });
 
 export default app;
