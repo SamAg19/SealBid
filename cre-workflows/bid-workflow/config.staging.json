@@ -1,10 +1,10 @@
 {
-  "url": "TODO: https://<your-api-host>",
-  "owner": "",
+  "url": "https://sealbid.onrender.com",
+  "owner": "0xf6aC8a8715024fE9Ff592D6A3f186E2B502B356a",
   "evms": [
     {
       "chainSelectorName": "ethereum-testnet-sepolia",
-      "contractAddress": "0x460Bf324fE5DA4e774520272c8b6dC6995808BC9",
+      "contractAddress": "0xE42Fd40Bf86448595D1EeA64a1B59757609F0C60",
       "gasLimit": "500000"
     }
   ]

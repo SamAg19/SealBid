@@ -134,3 +134,8 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# CRE CLI build artifacts
+.cre_build_tmp.js
+*.wasm
+bid-payload.json
