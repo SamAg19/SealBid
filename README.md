@@ -1,212 +1,388 @@
 <p align="center">
-  <img src="./assets/banner.png" alt="SealBid Banner" width="100%" />
+  <img src="./assets/banner.png" alt="LienFi Banner" width="100%" />
 </p>
 
-<h1 align="center">🔒 SealBid</h1>
-<p align="center"><i>Privacy-Preserving Sealed-Bid Auctions for Real World Assets</i></p>
+<h1 align="center">LienFi</h1>
+<p align="center"><i>Trustless Mortgages with Private Credit Scoring & Sealed-Bid Liquidation</i></p>
 
 <p align="center">
-  A sealed-bid Vickrey auction system where bid amounts, bidder identities, and losing bids are never exposed on-chain — powered by Chainlink CRE confidential compute, World ID sybil resistance, and a multi-token deposit pool.
+  A complete on-chain mortgage system where credit data is assessed privately inside a confidential enclave (never touches the chain), property collateral is locked as privacy-preserving NFTs, lenders earn passive yield, and loan defaults trigger sealed-bid Vickrey auctions where bid amounts, bidder identities, and losing bids are never exposed on-chain.
 </p>
 
 <p align="center">
   <a href="#"><img src="https://img.shields.io/badge/Built%20with-Chainlink%20CRE-375BD2?style=for-the-badge&logo=chainlink&logoColor=white" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/Credit-Plaid%20%2B%20Gemini-00D632?style=for-the-badge" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Identity-World%20ID-000000?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIyIi8+PC9zdmc+&logoColor=white" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Network-Sepolia-6C5CE7?style=for-the-badge&logo=ethereum&logoColor=white" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Hackathon-Chainlink%20Convergence-blue?style=for-the-badge" /></a>
 </p>
 
 <p align="center">
-  <a href="#-the-problem">Problem</a> •
-  <a href="#-how-sealbid-works">Solution</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-privacy-guarantees">Privacy</a> •
-  <a href="#-smart-contracts">Contracts</a> •
-  <a href="#-chainlink-services-used">Chainlink</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-demo">Demo</a>
+  <a href="#-the-problem">Problem</a> &bull;
+  <a href="#-how-lienfi-works">How It Works</a> &bull;
+  <a href="#-system-flow">System Flow</a> &bull;
+  <a href="#-privacy-guarantees">Privacy</a> &bull;
+  <a href="#-smart-contracts">Contracts</a> &bull;
+  <a href="#-chainlink-services-used">Chainlink</a> &bull;
+  <a href="#-tech-stack">Tech Stack</a> &bull;
+  <a href="#-quick-start">Quick Start</a>
 </p>
 
 ---
 
-## 🎯 The Problem
+## The Problem
 
-Traditional on-chain auctions are fundamentally broken for high-value assets:
+DeFi lending today requires **overcollateralization** because protocols have no way to assess real-world creditworthiness without exposing private financial data on-chain. Traditional on-chain auctions are fully transparent — bid amounts, bidder identities, and losing bids are permanently visible. Together these two gaps make a trustless mortgage impossible.
 
-- **Bid amounts are public** — competitors see what you're willing to pay and snipe accordingly
-- **Bidder identities are exposed** — your wallet address links you to every bid you've ever made
-- **Losing bidders are visible** — even if you lose, everyone knows you tried to buy
-- **Sybil attacks** — a single entity can create hundreds of wallets to manipulate auctions
-- **No RWA support** — tokenized real-world assets need compliance-gated participation
+**No existing protocol solves both simultaneously:**
 
-For Real World Assets worth millions, this isn't just inconvenient — it's a dealbreaker.
+| Gap | Why It Matters |
+|-----|---------------|
+| **No private credit scoring** | Borrowers must reveal income, bank history, and debt ratios publicly — or protocols skip underwriting entirely and demand 150%+ collateral |
+| **Transparent liquidation auctions** | Bid amounts are public (competitors snipe), bidder identities are exposed (privacy leak), losing bidders are visible (reputational risk) |
+| **No property data privacy** | Tokenized real estate exposes street addresses, appraisal values, and owner identities on-chain forever |
+| **Sybil-vulnerable auctions** | A single entity can create hundreds of wallets to manipulate liquidation outcomes |
 
-## ✨ How SealBid Works
+For tokenized real estate worth hundreds of thousands, these aren't inconveniences — they're dealbreakers.
 
-SealBid implements a **Vickrey (second-price) sealed-bid auction** where the highest bidder wins but pays only the second-highest price. The entire bid collection and settlement process runs inside Chainlink CRE's confidential compute environment.
+---
 
-> *"Deposit tokens. Place your bid. Nobody sees it. The best price wins."*
+## How LienFi Works
+
+LienFi is a complete mortgage primitive with no step requiring a bank, appraiser, or court:
+
+> *Lenders fund a USDC pool. Borrowers prove creditworthiness privately. Property NFT locked as collateral. Monthly EMI repayments grow pool yield. Default triggers sealed-bid auction to recover funds.*
+
+### The Lifecycle
+
+| Phase | What Happens | Privacy |
+|-------|-------------|---------|
+| **A. Pool Funding** | Lenders deposit USDC, receive clUSDC receipt tokens. Exchange rate rises as EMIs accumulate — passive yield, no staking. | clUSDC balances public |
+| **B. Property NFT** | Borrower verifies property via CRE enclave. Only a `commitmentHash` goes on-chain — no address, no value, no metadata. | Full details enclave-only |
+| **C. Credit Assessment** | Borrower submits loan request hash on-chain. CRE auto-triggers: Plaid data fetch, metric extraction, hard rule gates, Gemini AI scoring. Raw data discarded after. | Financial data never on-chain |
+| **D. Loan Disbursement** | Approved borrower locks PropertyNFT as collateral. USDC disbursed from pool. Loan record created on-chain. | Approval visible, financials hidden |
+| **E. Monthly Repayment** | Borrower pays fixed EMI. Full amount enters pool, raising clUSDC exchange rate. On full repayment, NFT returned. | EMI schedule public |
+| **F. Default + Auction** | 3 missed payments trigger default. PropertyNFT transferred to SealBidAuction. Sanitized listing (no address, no "default" label). Sealed bids via CRE. Vickrey settlement. Winner gets NFT + full address reveal. | Bids, bidders, losing bids all hidden |
 
 ### Key Features
 
-- **🔐 Sealed Bids** — Bid amounts exist only inside the CRE enclave. On-chain, only opaque bid hashes appear.
-- **🌐 World ID Sybil Resistance** — Real on-chain ZK proof verification. One human, one deposit. No fake accounts.
-- **💰 Multi-Token Support** — Deposit SRWA (compliance-gated RWA tokens) or USDC. Each auction specifies its settlement token.
-- **🕵️ Auction-Blind Pool** — Deposits carry no auction reference. Observers see "address deposited tokens, locked until timestamp" — not which auction.
-- **🏆 Vickrey Pricing** — Winner pays the second-highest bid, incentivizing truthful bidding.
-- **👻 Losing Bidders Stay Hidden** — Never linked to any auction on-chain. Withdraw after lock expires, no trace.
-- **🔑 Encrypted Settlement** — API responses are AES-GCM encrypted before leaving the enclave.
+- **Private Credit Scoring** — Plaid bank data fetched inside CRE enclave, pre-processed into metrics, scored by Gemini AI. Raw financial data is discarded after assessment — never persisted, never on-chain.
+- **Privacy-Preserving Property NFTs** — ERC-721 with only a commitment hash on-chain. No tokenURI, no metadata. Full details stored exclusively in the CRE enclave.
+- **Passive Yield for Lenders** — clUSDC exchange rate model (same as Compound cTokens). Pool USDC grows as EMIs come in, each clUSDC redeems for more. No staking, no claiming.
+- **Sealed-Bid Vickrey Auctions** — Bid amounts exist only inside the CRE enclave. On-chain: only opaque bid hashes. Winner pays second-highest price. Losing bids and bidders are never revealed.
+- **World ID Sybil Resistance** — On-chain ZK proof verification. One human, one deposit. No fake accounts manipulating auctions.
+- **Event-Driven Assessment Pipeline** — `LoanRequestSubmitted` event auto-triggers the entire credit assessment. No manual CRE trigger, no separate oracle — one coherent system.
+- **Sanitized Listings** — Default auctions show property type, neighborhood, size — but never the street address, owner identity, or reason for sale. Winner gets full details post-settlement only.
 
 ---
 
-## 🏗️ Architecture
+## System Flow
 
 ```
-               Frontend (built after sprint)
-               │
-               │  IDKit generates World ID ZK proof
-               │  User signs EIP-712 bid
-               │
-┌──────────────┼──────────────────────────────────────┐
-│              ▼                                      │
-│   CRE Workflow 0 (HTTP Trigger)                     │
-│   "Mint RWA Tokens"                                 │
-│     → EVM Write: mintRWATokens(                     │
-│         user, amount, root,                         │
-│         nullifierHash, proof)                       │
-│     → Contract verifies World ID on-chain           │
-│     → Mints SRWA tokens to user                     │
-│                                                     │
-│   CRE Workflow 1 (HTTP Trigger)                     │
-│   "Bid Collection"                                  │
-│     → EVM Read: canBid(bidder, auctionId)           │
-│     → Confidential HTTP: POST /bid                  │
-│       (API key injected in enclave)                 │
-│     → EVM Write: registerBid(auctionId, bidHash)    │
-│                                                     │
-│   CRE Workflow 2 (Cron Trigger)                     │
-│   "Settlement"                                      │
-│     → Confidential HTTP: POST /settle               │
-│       (encryptOutput: true, AES-GCM)               │
-│     → EVM Write: settleAuction(                     │
-│         auctionId, winner, price)            │
-│                                                     │
-└──────────────┬──────────────────────────────────────┘
-               │
-┌──────────────┼──────────────────────────────────────┐
-│              ▼                                      │
-│   SealBidAuction.sol (Sepolia)                      │
-│                                                     │
-│   MULTI-TOKEN DEPOSIT POOL:                         │
-│     SRWA (18 dec): 100e18 escrow                    │
-│     USDC (6 dec): 100e6 escrow                      │
-│     Per-token tracking, extensible                  │
-│                                                     │
-│   WORLD ID (on-chain ZK verification):              │
-│     Two actions: "mint_rwa" + "deposit_to_pool"     │
-│     Nullifier tracking for sybil resistance         │
-│                                                     │
-│   AUCTION LIFECYCLE:                                │
-│     createAuction → registerBid → settleAuction     │
-│     Each auction specifies its settlement token     │
-│                                                     │
-│   SealBidRWAToken.sol (ERC-20, restricted mint)     │
-│   MockWorldIDRouter.sol (testing)                   │
-│   MockUSDC.sol (testing, 6 decimals)                │
-│                                                     │
-└─────────────────────────────────────────────────────┘
-               │
-┌──────────────┼──────────────────────────────────────┐
-│              ▼                                      │
-│   Private Bid / Settlement API (Express)            │
-│     POST /bid    — validate EIP-712, store bid      │
-│     POST /settle — run Vickrey, return result       │
-│     GET  /status — bid count, deadline, settled     │
-│                                                     │
-│   Called only via Confidential HTTP from CRE.       │
-│   API key decrypted in enclave, never exposed.      │
-│   Settlement response AES-GCM encrypted.            │
-└─────────────────────────────────────────────────────┘
+                                    LIENFI
+
+ PHASE A: POOL FUNDING
+ ──────────────────────────────────────────────────────────────────
+  Lender
+    |  deposit(USDC)
+    v
+  LendingPool ──── mint clUSDC ──> Lender
+    |
+    |  exchangeRate = poolUSDC / clUSDC.totalSupply()
+    |  (rate rises as EMIs accumulate -> lenders earn yield passively)
+
+
+ PHASE B: PROPERTY NFT MINTING
+ ──────────────────────────────────────────────────────────────────
+  Borrower --> POST /verify-property (propertyId, docs)
+                    |
+                    v
+              API (enclave)
+                    |  stores full details internally (never on-chain)
+                    |  computes commitmentHash = keccak256(addr+value+docs+secret)
+                    |  returns { tokenId, commitmentHash }
+                    |
+  Borrower --> LoanManager.mintPropertyNFT(commitmentHash)
+                    |
+                    v
+              PropertyNFT ──── tokenId + commitmentHash stored on-chain
+                               (no metadata, no address, no value visible)
+
+
+ PHASE C: LOAN REQUEST + CREDIT ASSESSMENT (EVENT-DRIVEN)
+ ──────────────────────────────────────────────────────────────────
+  Borrower
+    |
+    |-(1)-> POST /loanRequest { plaidToken, tokenId, amount, tenure }
+    |              |
+    |              v
+    |         API stores details, returns requestHash
+    |
+    |-(2)-> LoanManager.submitRequest(requestHash)
+    |              |
+    |              |  emits LoanRequestSubmitted(borrower, requestHash)
+    |              |
+    |              v
+    |      +------------------------------------------------------------+
+    |      |        CRE ENCLAVE (auto-triggered by event)               |
+    |      |                                                            |
+    |      |  1. Fetch details from API DB using requestHash            |
+    |      |  2. Recompute + verify hash (abort if mismatch)            |
+    |      |  3. Get appraisedValue from enclave store (tokenId)        |
+    |      |  4. Compute EMI = P*r*(1+r)^n / ((1+r)^n - 1)             |
+    |      |  5. Fetch Plaid data via Confidential HTTP                 |
+    |      |  6. Pre-process: income, DTI, stability, overdraft rate    |
+    |      |  7. Hard gates: LTV<=80%, coverage>=3x, no recent defaults |
+    |      |  8. Pass metrics (NOT raw data) to Gemini                  |
+    |      |  9. Gemini returns: creditScore, verdict, approvedAmount   |
+    |      |  10. Discard all raw financial data                        |
+    |      |  11. Write verdict via KeystoneForwarder                   |
+    |      +------------------------------------------------------------+
+    |              |
+    |              v
+    |      LoanManager._writeVerdict()
+    |              |-- APPROVED -> store pendingApprovals[borrower]
+    |              |-- REJECTED -> emit LoanRequestRejected
+
+
+ PHASE D: LOAN DISBURSEMENT
+ ──────────────────────────────────────────────────────────────────
+  Borrower --> LoanManager.borrow(tokenId, amount, tenure)
+                    |
+                    |  check pendingApprovals[borrower] exists + not expired
+                    |  verify amount <= approvedLimit
+                    |  check LendingPool.availableLiquidity() >= amount
+                    |
+                    |-> PropertyNFT.transferFrom(borrower -> LoanManager)
+                    |   (collateral locked)
+                    |
+                    |-> LendingPool.disburse(borrower, amount)
+                    |        |
+                    |        --> USDC transferred to borrower wallet
+                    |
+                    --> Loan record created on-chain
+                              { loanId, emiAmount, nextDueDate, status:ACTIVE }
+
+
+ PHASE E: MONTHLY REPAYMENT
+ ──────────────────────────────────────────────────────────────────
+  Borrower --> LoanManager.repay(loanId)  [every 30 days]
+                    |
+                    |  accept exactly emiAmount USDC
+                    |  reduce remainingPrincipal
+                    |
+                    --> LendingPool.repayEMI(emiAmount)
+                              |
+                              --> pool USDC balance grows
+                                        |
+                                        --> clUSDC exchange rate rises
+                                                  |
+                                                  --> lenders earn yield passively
+
+  On full repayment:
+    PropertyNFT returned to borrower --> Loan closed
+
+
+ PHASE F: DEFAULT + SEALED-BID LIQUIDATION
+ ──────────────────────────────────────────────────────────────────
+  Anyone --> LoanManager.checkDefault(loanId)  [keeper/cron]
+                    |
+                    |  miss 1 -> emit PaymentMissed (warning)
+                    |  miss 2 -> emit PaymentMissed (grace period)
+                    |  miss 3 -> _triggerDefault()
+                    |                |
+                    |                v
+                    |       loan.status = DEFAULTED
+                    |       PropertyNFT -> SealBidAuction
+                    |       SealBidAuction.initiateDefaultAuction(
+                    |           tokenId, reservePrice=remainingPrincipal)
+                    |
+                    v
+      +------------------------------------------------------------+
+      |  CRE ENCLAVE (listing generation)                          |
+      |                                                            |
+      |  Retrieve full property details (tokenId -> enclave store) |
+      |  Generate sanitized listing:                               |
+      |    + property type, size, year built                       |
+      |    + city + neighborhood (NOT street address)              |
+      |    + verified appraisal value + reserve price              |
+      |    - no street address, no owner identity, no "default"    |
+      |  Compute listingHash, store on-chain in Auction struct     |
+      +------------------------------------------------------------+
+                    |
+                    v
+  Bidders view sanitized listing
+                    |
+  Bidder --> depositToPool(USDC, lockUntil) + World ID ZK proof
+  Bidder --> POST /bid { auctionId, amount, signature } via CRE
+                    |
+                    v  (Confidential HTTP -- bid stays private)
+      +------------------------------------------------------------+
+      |  CRE Bid Workflow                                          |
+      |    validate EIP-712 signature                              |
+      |    check pool balance >= bid amount                        |
+      |    store bid encrypted in enclave                          |
+      |    return opaque bidHash                                   |
+      +------------------------------------------------------------+
+                    |
+                    --> SealBidAuction: only bidHash stored on-chain
+                          (bid amount invisible to all observers)
+
+  [auction deadline passes]
+                    |
+      +------------------------------------------------------------+
+      |  CRE Settlement Workflow (cron-triggered)                  |
+      |    retrieve all bids from enclave                          |
+      |    Vickrey: winner = highest bid                           |
+      |             price  = second-highest bid (or reserve)       |
+      |    all losing bids discarded -- never revealed             |
+      +------------------------------------------------------------+
+                    |
+                    v
+      SealBidAuction._settleAuction(winner, price)
+                    |
+                    |-> PropertyNFT transferred to winner
+                    |
+                    --> LoanManager.onAuctionSettled(loanId, proceeds)
+                              |
+                              |-- proceeds >= debt -> full repayment to pool
+                              |                       surplus -> borrower
+                              |-- proceeds < debt  -> partial repayment to pool
+                                                      shortfall absorbed by pool
+
+  Winner --> POST /reveal/:auctionId (signed request)
+                    |
+                    --> CRE returns full street address + ownership docs
+                          (Confidential HTTP -- winner only, post-settlement)
+
+
+ PRIVACY BOUNDARY SUMMARY
+ ──────────────────────────────────────────────────────────────────
+  PRIVATE (CRE enclave only)          ON-CHAIN (public)
+  ----------------------------        --------------------------------
+  Plaid financial data                Credit verdict (approve/reject + limit)
+  Credit score + Gemini reasoning     requestHash (meaningless without preimage)
+  Property address + documents        commitmentHash (unreadable fingerprint)
+  Appraisal details                   Loan record (no financial details)
+  Bid amounts + bidder identities     EMI schedule + payment history
+  Vickrey settlement logic            Opaque bid hashes only
+  Full listing details (pre-reveal)   Winner + settlement price
+                                      clUSDC balances + exchange rate
 ```
 
 ---
 
-## 🔒 Privacy Guarantees
+## System Participants
 
-| Phase | What's Visible On-Chain | What's Hidden |
-|-------|------------------------|---------------|
-| **Deposit** | "Address deposited tokens, locked until timestamp" | Which auction the deposit is for |
-| **During Auction** | Opaque bid hashes only | Bid amounts, bidder addresses |
-| **Settlement** | Winner address + Vickrey price | All losing bids and bidders |
-| **Post-Auction** | Losers withdraw tokens | No link between losers and any auction |
+| Actor | Role |
+|-------|------|
+| **Lender / Investor** | Deposits USDC into lending pool, earns yield via clUSDC exchange rate appreciation |
+| **Borrower** | Verifies property, applies for loan, locks PropertyNFT as collateral, repays monthly EMIs |
+| **CRE Enclave** | Confidential compute — credit assessment (Plaid + Gemini), property data custodian, auction listing generator, bid/settlement engine |
+| **LoanManager** | Core contract — owns the full mortgage lifecycle from origination through repayment to liquidation |
+| **LendingPool** | Holds USDC, disburses loans, receives EMI repayments, manages clUSDC exchange rate |
+| **PropertyNFT** | ERC-721 — one token per property, commitment hash only, no metadata on-chain |
+| **SealBidAuction** | Sealed-bid Vickrey auction for defaulted properties — deposit pool, World ID, opaque bid hashes |
+
+---
+
+## Privacy Guarantees
+
+| Information | On-Chain Visibility | Who Sees It |
+|-------------|-------------------|-------------|
+| Borrower financials (income, bank data) | **Never** | Nobody — discarded after assessment |
+| Credit score / Gemini reasoning | **Never** | Nobody — discarded after assessment |
+| Loan request details | requestHash only | Nobody (hash is meaningless without pre-image) |
+| Property address + ownership docs | **Never** | Winner only — post-settlement via CRE |
+| Property appraisal value | Via sanitized listing | Public (neighborhood-level only during auction) |
+| Bid amounts | **Never** | Nobody — only hashes on-chain |
+| Losing bidder identities | **Never** | Nobody |
+| Reason for auction | **Never** | Nobody — no "default" or "foreclosure" label |
+| Approval verdict | Approve / reject + limit | On-chain (public) |
+| EMI schedule + payment history | On-chain | Public |
+| clUSDC balances + exchange rate | On-chain | Public |
 
 **Additional privacy layers:**
-- Multi-token obfuscation — observers can't tell if a USDC deposit is for an SRWA auction or vice versa
-- API credentials decrypted only inside CRE enclave
+- Multi-token obfuscation — USDC deposits carry no auction reference, observers can't link deposits to specific auctions
+- API credentials decrypted only inside CRE enclave — never exposed to any party
 - Settlement responses AES-GCM encrypted before leaving enclave
 - World ID ZK proofs — identity verified without revealing who you are
+- PropertyNFT has no `tokenURI` — zero on-chain metadata leakage
 
 ---
 
-## ⛓️ Smart Contracts
+## Smart Contracts
 
-### Deployed Contracts (Sepolia)
+### Existing (Auction Engine — Deployed on Sepolia)
 
-| Contract | Address | Purpose |
-|----------|---------|---------|
-| **MockWorldIDRouter** | `0xa35b312c8382cf9b3cf25ebf22671b33ef3c0e45` | Mock World ID verification for testing |
-| **MockUSDC** | `0x36c8ed6334bfd268225cfa6992efb2d2ff3046dc` | Mock USDC token (6 decimals) for testing |
-| **SealBidRWAToken** | `0xe8e4cd653a1b9ab7b5be20ded376ca3f8da258eb` | ERC-20 RWA token, restricted minting |
-| **SealBidAuction** | `0x9e2a38c2544671c3cb950096dd24f1a0d80a270b` | Core auction contract — pool, World ID, lifecycle |
+| Contract | Purpose |
+|----------|---------|
+| **SealBidAuction.sol** | Core auction + deposit pool + World ID sybil resistance + opaque bid hash storage + Vickrey settlement via CRE |
+| **SealBidRWAToken.sol** | ERC-20 RWA token with restricted minting (to be replaced by PropertyNFT) |
+| **MockWorldIDRouter.sol** | Always-passing World ID mock for testing |
+| **MockUSDC.sol** | Test USDC token (6 decimals) with public mint |
+| **ReceiverTemplate.sol** | Abstract base for receiving Keystone CRE DON-signed reports |
 
-### Contract Overview
+### New (Lending System — In Development)
 
-**SealBidAuction.sol** — The core contract combining:
-- Multi-token deposit pool (SRWA + USDC, extensible)
-- World ID on-chain ZK proof verification (two actions: mint + deposit)
-- Forwarder-gated auction lifecycle (bid registration + settlement via CRE)
-- Vickrey settlement with per-token accounting
+| Contract | Purpose |
+|----------|---------|
+| **LoanManager.sol** | Full mortgage lifecycle — request anchoring, CRE verdict receiver, loan origination, repayment tracking, default triggering, auction settlement callback |
+| **LendingPool.sol** | USDC pool — lender deposits, loan disbursement, EMI collection. Access-controlled by LoanManager |
+| **clUSDC.sol** | ERC-20 receipt token. Minted on deposit, burned on withdrawal. Exchange rate appreciates as pool USDC grows |
+| **PropertyNFT.sol** | ERC-721 — one token per property, stores only `commitmentHash`. No tokenURI, no on-chain metadata |
 
-**SealBidRWAToken.sol** — Minimal ERC-20 with restricted minting:
-- Only the auction contract (as minter) can mint tokens
-- World ID gated via CRE Workflow 0
-- Users with existing USDC skip this entirely
+### Architecture Decisions
 
-
-
----
-
-## 🔗 Chainlink Services Used
-
-| Service | Usage | Workflow |
-|---------|-------|----------|
-| **CRE Workflow Engine** | 3 workflows orchestrating the entire auction lifecycle | All |
-| **Confidential HTTP** | Bid submission + settlement via private API, API key injected in enclave | WF 1, WF 2 |
-| **Vault DON Secrets** | API keys and AES encryption keys stored securely | WF 1, WF 2 |
-| **Encrypted Output** | AES-GCM encryption of settlement results before leaving enclave | WF 2 |
+| Decision | Rationale |
+|----------|-----------|
+| ERC-721 (not ERC-20) for property | One token per property, no fractions needed |
+| No metadata on-chain | Property details in CRE enclave only — commitment hash as tamper-proof anchor |
+| clUSDC exchange rate model | No per-lender yield tracking needed — pool USDC grows as EMIs come in, rate rises automatically (same as Compound cTokens) |
+| LoanManager owns all loan state | No separate oracle contract — approval verdict and loan lifecycle in one contract |
+| requestHash as DB key + on-chain anchor | Single value proves request integrity; DB lookup key off-chain, tamper check on-chain |
+| Event-driven CRE trigger | `LoanRequestSubmitted` event auto-triggers assessment — one coherent system, no manual step |
+| EMI computed in enclave | Used for income coverage gate check; stored in approval; read at disbursement — no recomputation |
 
 ---
 
-## 🛠️ Tech Stack
+## Chainlink Services Used
+
+| Service | Usage | Where |
+|---------|-------|-------|
+| **CRE Workflow Engine** | 5 workflows orchestrating the entire system — mint, bid, settle, credit assessment, listing generation | All phases |
+| **Confidential HTTP** | Plaid API calls (bank data), Gemini API calls (AI scoring), bid submission, settlement — all inside enclave | Credit assessment, auction |
+| **Vault DON Secrets** | API keys (Plaid, Gemini, bid API) and AES encryption keys stored securely, decrypted only in enclave | All workflows |
+| **Encrypted Output** | AES-GCM encryption of settlement results and credit verdicts before leaving enclave | Settlement, credit |
+| **Log-Based Trigger** | `LoanRequestSubmitted` event auto-triggers credit assessment workflow — no HTTP trigger needed | Credit assessment |
+| **Cron Trigger** | Settlement workflow runs every 30 seconds, checking for expired auctions to settle | Auction settlement |
+| **EVM Read/Write** | On-chain state reads (auction status, pool balances) and DON-signed report submission via KeystoneForwarder | All workflows |
+
+---
+
+## Tech Stack
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Smart Contracts** | Solidity 0.8.24 + Foundry | SealBidAuction, SealBidRWAToken, mocks |
-| **Contract Framework** | OpenZeppelin | ERC-20, Ownable, ReentrancyGuard |
+| **Smart Contracts** | Solidity 0.8.24 + Foundry | LoanManager, LendingPool, SealBidAuction, PropertyNFT, clUSDC |
+| **Contract Libraries** | OpenZeppelin | ERC-20, ERC-721, Ownable, ReentrancyGuard |
 | **Identity** | World ID (Worldcoin) | On-chain ZK proof verification, sybil resistance |
-| **Confidential Compute** | Chainlink CRE | 3 workflows — mint, bid, settle |
-| **Network** | Sepolia (Tenderly fork) | Testing and demo deployment |
-| **Private API** | Express.js + TypeScript | Bid storage, EIP-712 verification, Vickrey logic |
-| **Signature Standard** | EIP-712 | Typed structured data for bid signing |
-| **Encryption** | AES-GCM | Settlement response encryption in enclave |
+| **Confidential Compute** | Chainlink CRE | 5 workflows — mint, bid, settle, credit assessment, listing |
+| **Credit Data** | Plaid API (Sandbox) | Bank account data, transaction history, income verification |
+| **AI Scoring** | Google Gemini | Credit scoring from pre-processed financial metrics |
+| **Network** | Ethereum Sepolia | Testnet deployment |
+| **Private API** | Express.js + TypeScript | Bid storage, EIP-712 verification, Vickrey logic, loan request storage, property data custodian |
+| **Signature Standard** | EIP-712 | Typed structured data for bid signing and identity verification |
+| **Encryption** | AES-GCM | Settlement and credit verdict encryption in enclave |
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
 - [Foundry](https://book.getfoundry.sh/getting-started/installation) (`foundryup`)
+- [CRE CLI](https://docs.chain.link/cre/getting-started/cli-installation)
 - Node.js 20+
 - Sepolia ETH for gas
 
@@ -214,156 +390,245 @@ SealBid implements a **Vickrey (second-price) sealed-bid auction** where the hig
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/sealbid.git
-cd sealbid
+git clone https://github.com/yourusername/lienfi.git
+cd lienfi
 
-# ─── Smart Contracts ───────────────────────────────────────────────
+# --- Smart Contracts ---
 cd contracts
-
-# Install dependencies
 forge install
-
-# Configure environment
 cp .env.example .env
-# Add PRIVATE_KEY and WORLD_ID_APP_ID
+# Edit .env: add PRIVATE_KEY, SEPOLIA_RPC_URL, WORLD_ID_APP_ID
 
-# Deploy all contracts (MockWorldIDRouter → MockUSDC → SealBidRWAToken → SealBidAuction)
 source .env
-forge script script/DeploySealBid.s.sol --fork-url $SEPOLIA_RPC_URL --broadcast
+forge script script/DeploySealBid.s.sol:DeploySealBid \
+  --rpc-url "$SEPOLIA_RPC_URL" --broadcast
 
-# Run tests
-forge test -vvv
+# Note the deployed addresses from the output
 
-# ─── Private API ───────────────────────────────────────────────────
+# --- Private API ---
 cd ../api
 npm install
 cp .env.example .env
-# Add BID_API_KEY, AES_KEY, deployed contract addresses
-npm run dev
+# Edit .env: add BID_API_KEY, VERIFYING_CONTRACT, RPC_URL
 
-# ─── CRE Workflows ────────────────────────────────────────────────
-cd ../sealbid
-# Install CRE CLI and configure workflows
-# See CRE Workflow section in docs
+npm run dev
+# API running at http://localhost:3001
+
+# --- CRE Workflows ---
+cd ../cre-workflows/bid-workflow
+bun install
+
+# Simulate bid workflow
+cd ..
+cre workflow simulate ./bid-workflow \
+  --target staging-settings \
+  --http-payload @bid-payload.json \
+  --non-interactive --trigger-index 0
 ```
 
 ### Environment Variables
 
 ```env
-# ─── Deployer ──────────────────────────────────────────────────────
+# --- Deployer ---
 PRIVATE_KEY=0x...
 SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
 
-# ─── World ID ──────────────────────────────────────────────────────
+# --- World ID ---
 WORLD_ID_APP_ID=app_staging_...
 
-# ─── Shared Secrets (generated with openssl rand -hex 32) ──────────
-BID_API_KEY=...
-AES_KEY=...
+# --- API Secrets ---
+BID_API_KEY=...          # openssl rand -hex 32
+HMAC_KEY=...
 
-# ─── Deployed Contracts (populated after deployment) ───────────────
-MOCK_WORLD_ID_ROUTER=
-MOCK_USDC=
-SRWA_TOKEN=
-SEAL_BID_AUCTION=
+# --- Credit Assessment (new) ---
+PLAID_CLIENT_ID=...
+PLAID_SECRET=...
+PLAID_ENV=sandbox
+GEMINI_API_KEY=...
+INTEREST_RATE_BPS=800    # 8% annual
+
+# --- Deployed Contracts (populated after deployment) ---
+SEAL_BID_AUCTION=0x...
+LENDING_POOL=0x...
+LOAN_MANAGER=0x...
+PROPERTY_NFT=0x...
+MOCK_USDC=0x...
+CL_USDC=0x...
 ```
 
 ---
 
-## 🧪 Testing
+## End-to-End Flow
 
-### Forge Tests (40 tests)
-
-```bash
-cd contracts
-forge test -vvv
 ```
-
-**Test Coverage:**
-
-| Category | Tests | Description |
-|----------|-------|-------------|
-| World ID + RWA Minting | 3 | Mint, non-forwarder revert, nullifier reuse |
-| Multi-Token Deposit Pool | 20 | SRWA/USDC deposits, locks, withdrawals, canBid |
-| Auction Lifecycle | 13 | Create, register bid, settle — both token types |
-| Full Integration | 4 | End-to-end flows, mixed token scenarios |
+ 1.  Lender deposits USDC          -> receives clUSDC at current exchange rate
+ 2.  Borrower verifies property     -> CRE computes commitmentHash, stores details in enclave
+ 3.  Borrower mints PropertyNFT    -> tokenId + commitmentHash on-chain, no metadata
+ 4.  Borrower POSTs loan details   -> stored in DB keyed by requestHash, receives requestHash
+ 5.  Borrower calls submitRequest  -> requestHash anchored on-chain, LoanRequestSubmitted emitted
+ 6.  CRE auto-triggered by event   -> fetches DB, verifies hash, Plaid -> Gemini -> verdict on-chain
+ 7.  Borrower calls borrow()       -> approval checked, NFT locked, USDC disbursed from pool
+ 8.  Borrower repays monthly       -> full EMI enters pool, clUSDC exchange rate rises
+ 9.  3 missed payments             -> checkDefault() called, NFT to auction, default triggered
+10.  Sanitized listing published   -> neighborhood-level details + listingHash on-chain
+11.  Bidders participate           -> USDC deposited, signed bids via CRE, hashes on-chain only
+12.  Auction settles               -> Vickrey in enclave, winner + price on-chain, pool repaid
+13.  Winner requests reveal        -> signed request, CRE returns full address via Confidential HTTP
+```
 
 ---
 
+## What's Already Built
 
-## 📁 Project Structure
+The sealed-bid auction engine is fully implemented and tested on Sepolia:
+
+| Component | Status |
+|-----------|--------|
+| `SealBidAuction.sol` — deposit pool, World ID, opaque bid hashes, Vickrey settlement | Deployed |
+| `SealBidRWAToken.sol` — ERC-20 RWA token (will be replaced by ERC-721 PropertyNFT) | Deployed |
+| CRE bid-workflow — HTTP-triggered sealed bid collection via Confidential HTTP | Deployed |
+| CRE settlement-workflow — cron-triggered Vickrey settlement | Deployed |
+| CRE mint-workflow — HTTP-triggered RWA token minting | Deployed |
+| Private API — `/bid`, `/settle`, `/status` with EIP-712 + Vickrey logic | Deployed (Render) |
+
+**Everything lending-related is new.** The ERC-20 property token becomes an ERC-721.
+
+---
+
+## Project Structure
 
 ```
-sealbid/
-├── contracts/                        # Solidity smart contracts (Foundry)
+lienfi/
+├── contracts/                           # Solidity smart contracts (Foundry)
 │   ├── src/
-│   │   ├── SealBidAuction.sol        # Core: pool + World ID + auction lifecycle
-│   │   ├── SealBidRWAToken.sol       # ERC-20 RWA token, restricted mint
+│   │   ├── SealBidAuction.sol           # Auction: pool + World ID + sealed bids + Vickrey
+│   │   ├── SealBidRWAToken.sol          # ERC-20 RWA token (being replaced by PropertyNFT)
+│   │   ├── LoanManager.sol              # [NEW] Full mortgage lifecycle + CRE verdict receiver
+│   │   ├── LendingPool.sol              # [NEW] USDC pool, disburse, EMI collection
+│   │   ├── clUSDC.sol                   # [NEW] Receipt token, appreciating exchange rate
+│   │   ├── PropertyNFT.sol              # [NEW] ERC-721, commitment hash only, no metadata
+│   │   ├── ReceiverTemplate.sol         # Abstract base for Keystone CRE reports
 │   │   ├── interfaces/
-│   │   │   ├── IWorldID.sol          # World ID router interface
-│   │   │   └── ISealBidRWAToken.sol  # RWA token mint interface
+│   │   │   ├── IWorldID.sol
+│   │   │   └── ISealBidRWAToken.sol
 │   │   ├── libraries/
-│   │   │   └── ByteHasher.sol        # World ID field hashing
+│   │   │   └── ByteHasher.sol           # World ID field hashing
 │   │   └── mocks/
-│   │       ├── MockWorldIDRouter.sol  # Always-pass World ID mock
-│   │       └── MockUSDC.sol          # 6-decimal test USDC
+│   │       ├── MockWorldIDRouter.sol     # Always-pass World ID for testing
+│   │       └── MockUSDC.sol             # 6-decimal test USDC
 │   ├── script/
-│   │   └── DeploySealBid.s.sol       # Full deployment script
-│   ├── test/
-│   │   └── SealBidAuction.t.sol      # 40 Forge tests
+│   │   └── DeploySealBid.s.sol          # Full deployment + wiring script
 │   └── foundry.toml
-├── api/                              # Private bid/settlement API
+├── api/                                 # Private API (Express.js + TypeScript)
 │   ├── src/
 │   │   ├── server.ts
 │   │   ├── routes/
-│   │   │   ├── bid.ts               # POST /bid — EIP-712 validation
-│   │   │   ├── settle.ts            # POST /settle — Vickrey logic
-│   │   │   └── status.ts            # GET /status/:auctionId
+│   │   │   ├── bid.ts                   # POST /bid — EIP-712 validation + bid storage
+│   │   │   ├── settle.ts               # POST /settle — Vickrey settlement
+│   │   │   ├── status.ts               # GET /status/:auctionId
+│   │   │   ├── loanRequest.ts          # [NEW] POST /loanRequest — store details, return hash
+│   │   │   ├── listing.ts             # [NEW] GET /listing/:auctionId — sanitized listing
+│   │   │   └── reveal.ts              # [NEW] POST /reveal/:auctionId — winner-only full details
 │   │   └── lib/
-│   │       ├── store.ts             # In-memory bid storage
-│   │       ├── eip712.ts            # Signature verification
-│   │       ├── auth.ts              # API key middleware
-│   │       └── vickrey.ts           # Second-price auction logic
+│   │       ├── store.ts                 # In-memory bid + loan request + property storage
+│   │       ├── eip712.ts               # EIP-712 signature verification
+│   │       ├── auth.ts                 # API key middleware
+│   │       ├── chain.ts               # On-chain state reads
+│   │       └── vickrey.ts             # Second-price auction settlement logic
 │   └── package.json
-├── sealbid/                          # CRE Workflows
-│   ├── project.yaml
-│   ├── secrets.yaml
-│   ├── mint-workflow/                # Workflow 0: RWA Token Minting
-│   ├── bid-workflow/                 # Workflow 1: Bid Collection
-│   └── settlement-workflow/          # Workflow 2: Settlement
-├── assets/                           # Logo, banner, diagrams
+├── cre-workflows/                       # Chainlink CRE Workflows
+│   ├── project.yaml                     # CRE project settings (RPC URLs, chains)
+│   ├── secrets.yaml                     # Vault DON secret mappings
+│   ├── mint-workflow/                   # Workflow 0: RWA Token Minting (HTTP trigger)
+│   ├── bid-workflow/                    # Workflow 1: Sealed Bid Collection (HTTP trigger)
+│   ├── settlement-workflow/             # Workflow 2: Vickrey Settlement (cron trigger)
+│   ├── credit-assessment-workflow/      # [NEW] Workflow 3: Plaid + Gemini (log trigger)
+│   └── generate-bid-payload.ts          # Helper: generate EIP-712 signed test bids
+├── assets/                              # Logo, banner, diagrams
+├── LIENFI_SPEC.md                       # Full technical specification
+├── DEPLOY_AND_TEST_BID_WORKFLOW.md      # Step-by-step deployment + testing guide
 └── README.md
 ```
 
 ---
 
-## 🎥 Demo
+## Credit Assessment Pipeline
 
-> 📺 **Video Walkthrough:** [Coming Soon](#)
->
-> 🔗 **Tenderly Contracts:** [Coming Soon](#)
->
-> 🌐 **Deployed API:** [Coming Soon](#)
+The credit assessment is the core innovation — a fully private underwriting flow inside Chainlink CRE:
+
+```
+Borrower                    API                         CRE Enclave
+   |                         |                              |
+   |-- POST /loanRequest --->|                              |
+   |   {plaidToken, tokenId, |                              |
+   |    amount, tenure}      |                              |
+   |                         |-- store details,             |
+   |                         |   compute requestHash        |
+   |<-- { requestHash } -----|                              |
+   |                         |                              |
+   |-- submitRequest(hash) --|------ on-chain tx ---------> |
+   |   (LoanManager)         |                              |
+   |                         |   LoanRequestSubmitted event |
+   |                         |                              |
+   |                         |<-- fetch by requestHash -----|
+   |                         |-- return details ----------->|
+   |                         |                              |
+   |                         |   1. Verify hash matches     |
+   |                         |   2. Get appraised value     |
+   |                         |   3. Compute EMI             |
+   |                         |                              |
+   |                         |<-- Plaid API (Conf. HTTP) ---|
+   |                         |-- bank data ---------------->|
+   |                         |                              |
+   |                         |   4. Extract metrics:        |
+   |                         |      income, DTI, stability  |
+   |                         |   5. Hard gates:             |
+   |                         |      LTV <= 80%              |
+   |                         |      coverage >= 3x          |
+   |                         |      no recent defaults      |
+   |                         |                              |
+   |                         |<-- Gemini (Conf. HTTP) ------|
+   |                         |-- metrics only ------------->|
+   |                         |                              |
+   |                         |   6. creditScore, verdict,   |
+   |                         |      approvedAmount          |
+   |                         |   7. DISCARD all raw data    |
+   |                         |                              |
+   |                         |   8. Write verdict on-chain  |
+   |                         |      via KeystoneForwarder   |
+   |                         |                              |
+   |<---- LoanRequestApproved / LoanRequestRejected -------|
+```
 
 ---
 
-## 👥 Team
+## Demo
 
-Built by the **SealBid Team** for the Chainlink CRE Hackathon.
+> **Video Walkthrough:** [Coming Soon](#)
+>
+> **Deployed Contracts (Sepolia):** [Coming Soon](#)
+>
+> **Live API:** [Coming Soon](#)
 
 ---
 
-## 📄 License
+## Team
+
+Built by the **LienFi Team** for the Chainlink Convergence Hackathon.
+
+---
+
+## License
 
 MIT License — see [LICENSE](./LICENSE) for details.
 
 ---
 
 <p align="center">
-  <img src="./assets/logo.png" alt="SealBid Logo" width="80" />
+  <img src="./assets/logo.png" alt="LienFi Logo" width="80" />
 </p>
 
 <p align="center">
-  <i>Built for the Chainlink Convergence Hackathon 2026</i><br/>
-  <i>Powered by <a href="https://chain.link">Chainlink CRE</a> · Verified by <a href="https://worldcoin.org">World ID</a> · Deployed on <a href="https://sepolia.etherscan.io">Sepolia</a></i>
+  <i>Built for the Chainlink Convergence Hackathon 2025</i><br/>
+  <i>Powered by <a href="https://chain.link">Chainlink CRE</a> &bull; Credit via <a href="https://plaid.com">Plaid</a> + <a href="https://ai.google.dev">Gemini</a> &bull; Identity via <a href="https://worldcoin.org">World ID</a> &bull; Deployed on <a href="https://sepolia.etherscan.io">Sepolia</a></i>
 </p>
