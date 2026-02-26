@@ -17,7 +17,7 @@
 # ==========================================================================
 staging-settings:
   user-workflow:
-    workflow-name: "mint"
+    workflow-name: "create"
   workflow-artifacts:
     workflow-path: "./main.ts"
     config-path: "./config.staging.json"

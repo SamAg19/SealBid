@@ -1,8 +1,9 @@
 {
+  "url": "TODO: https://<your-api-host>",
+  "owner": "",
   "evms": [
     {
       "chainSelectorName": "ethereum-testnet-sepolia",
-      "stablecoinAddress": "TODO: 0x<MockUSDC-address>",
       "consumerAddress": "TODO: 0x<SealBidAuction-address>",
       "gasLimit": "500000"
     }

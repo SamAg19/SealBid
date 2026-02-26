@@ -27,6 +27,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IWorldID} from "./interfaces/IWorldID.sol";
 import {ISealBidRWAToken} from "./interfaces/ISealBidRWAToken.sol";
+import {SealBidRWAToken} from "./SealBidRWAToken.sol";
 import {ByteHasher} from "./libraries/ByteHasher.sol";
 import {ReceiverTemplate} from "./ReceiverTemplate.sol";
 
@@ -34,32 +35,37 @@ import {ReceiverTemplate} from "./ReceiverTemplate.sol";
  * @title SealBidAuction
  * @author SealBid Team
  *
- * Core contract for the SealBid sealed-bid auction system, combining a multi-token
- * deposit pool with World ID sybil resistance and a privacy-preserving auction lifecycle.
+ * Privacy-preserving sealed-bid auction platform for fractional real estate equity.
+ *
+ * A property owner tokenizes a fraction of their property by sending a payload to the
+ * CRE create-auction workflow. The workflow verifies the property off-chain via Confidential
+ * HTTP, then delivers a DON-signed report that triggers this contract to:
+ *   1. Deploy a new ERC-20 property share token (one per property)
+ *   2. Mint the verified share amount directly into this contract's escrow
+ *   3. Open the sealed-bid auction
+ *
+ * Bidders compete with USDC. The Vickrey winner pays second-price in USDC and receives
+ * the property share tokens. The seller receives the USDC.
  *
  * Properties:
- * - Multi-token deposit pool: supports SRWA (18 decimals) and USDC (6 decimals),
- *   extensible to additional tokens via owner. Pool is auction-blind — deposits
- *   carry no auction reference, so observers cannot link deposits to specific auctions.
- * - World ID integration: real on-chain ZK proof verification via Router. Pool
- *   deposits require World ID — one human, one deposit (sybil resistance).
- * - RWA token minting: trusted via Chainlink CRE DON consensus + KeystoneForwarder.
+ * - Per-property tokens: each property gets its own ERC-20 deployed inside _createPropertyAuction.
+ *   Only contract-deployed tokens are held in escrow; no external token injection.
+ * - Bid token is always USDC (i_usdc immutable): bidders deposit arbitrary USDC amounts.
+ * - World ID integration: pool deposits require ZK proof — one human, one deposit.
  * - Auction lifecycle: CRE-only bid registration and settlement via onReport.
- *   Only opaque bid hashes stored on-chain during auction. Settlement reveals
- *   only winner + Vickrey price.
+ *   Only opaque bid hashes stored on-chain. Settlement reveals only winner + Vickrey price.
  * - Privacy: bid amounts, bidder identities, and losing bids are never exposed on-chain.
- *   Multi-token support adds obfuscation — observers can't tell which token type maps
- *   to which auction.
  *
- * @notice CRE workflows deliver signed reports via the KeystoneForwarder, which calls
- * onReport on this contract. Dispatch is based on the workflowName field in the
- * report metadata (set in each workflow's yaml `name` field):
- *   "mint"   → _mintRWATokens
+ * @notice CRE workflows deliver signed reports via the KeystoneForwarder → onReport.
+ * Dispatch is based on workflowName (bytes10) from report metadata:
+ *   "create" → _createPropertyAuction
  *   "bid"    → _registerBid
  *   "settle" → _settleAuction
  *
  * Workflow report encodings:
- *   mint:   abi.encode(uint8 instructionType, address account, uint256 amount, bytes32 bankRef)
+ *   create: abi.encode(bytes32 propertyId, address seller, uint256 shareAmount,
+ *                      string tokenName, string tokenSymbol,
+ *                      bytes32 auctionId, uint256 deadline, uint256 reservePrice)
  *   bid:    abi.encode(bytes32 auctionId, bytes32 bidHash)
  *   settle: abi.encode(bytes32 auctionId, address winner, uint256 price)
  */
@@ -69,11 +75,11 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     // Workflow Name Constants (bytes10)
     // Encoding: SHA256(name) → 64-char hex string → first 10 hex chars → hex-encode those ASCII chars → bytes10
-    // "mint"   → 0x64633666313762626563
-    // "bid"    → 0x63306530656663346663
-    // "settle" → 0x36383638653833646533
+    // "create" → SHA256 first 10: "fa8847b0c3" → 0x66613838343762306333
+    // "bid"    → SHA256 first 10: "c0e0efc4fc" → 0x63306530656663346663
+    // "settle" → SHA256 first 10: "6868e83de3" → 0x36383638653833646533
     ///////////////////
-    bytes10 private constant WORKFLOW_MINT   = bytes10(0x64633666313762626563);
+    bytes10 private constant WORKFLOW_CREATE = bytes10(0x66613838343762306333);
     bytes10 private constant WORKFLOW_BID    = bytes10(0x63306530656663346663);
     bytes10 private constant WORKFLOW_SETTLE = bytes10(0x36383638653833646533);
 
@@ -82,7 +88,7 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     error SealBidAuction__InvalidNullifier();
     error SealBidAuction__TokenNotAccepted();
-    error SealBidAuction__FixedAmountOnly();
+    error SealBidAuction__InvalidAmount();
     error SealBidAuction__LockMustBeInFuture();
     error SealBidAuction__TransferFailed();
     error SealBidAuction__FundsLocked();
@@ -103,28 +109,29 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     struct Auction {
         address seller;
-        address token;
+        address tokenAddress;  // property ERC-20 deployed by this contract
+        uint256 shareAmount;   // property share tokens held in escrow by this contract
         uint256 deadline;
-        uint256 reservePrice;
+        uint256 reservePrice;  // USDC (6 decimals)
         bool settled;
         address winner;
-        uint256 settledPrice;
+        uint256 settledPrice;  // USDC (6 decimals)
     }
 
     ///////////////////
     // State Variables
     ///////////////////
     IWorldID public immutable i_worldId;
+    address public immutable i_usdc;
     uint256 public immutable i_groupId = 1;
     uint256 public immutable i_depositExternalNullifierHash;
     mapping(uint256 => bool) public nullifierHashes;
 
-    // Multi-Token Support
-    address public rwaToken;
-    mapping(address => bool) public acceptedTokens;
-    mapping(address => uint256) public escrowAmount;
+    // Per-property token registry — only tokens deployed by this contract
+    mapping(address => bool) public isPropertyToken;
 
-    // Deposit Pool
+    // Deposit Pool — USDC accepted for bidding
+    mapping(address => bool) public acceptedTokens;
     mapping(address => mapping(address => uint256)) public poolBalance;
     mapping(address => uint256) public lockExpiry;
 
@@ -137,8 +144,8 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     // Events
     ///////////////////
-    event TokenAccepted(address indexed token, uint256 escrowAmount);
-    event RWATokensMinted(address indexed to, uint256 amount);
+    event PropertyTokenCreated(address indexed tokenAddress, string name, string symbol);
+    event PropertyTokensMinted(address indexed tokenAddress, address indexed to, uint256 amount);
     event PoolDeposit(
         address indexed depositor,
         address indexed token,
@@ -153,8 +160,9 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     );
     event AuctionCreated(
         bytes32 indexed auctionId,
-        address seller,
-        address indexed token,
+        address indexed seller,
+        address indexed tokenAddress,
+        uint256 shareAmount,
         uint256 deadline,
         uint256 reservePrice
     );
@@ -170,13 +178,12 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     constructor(
         address _forwarder,
-        address _rwaToken,
         address _usdc,
         IWorldID _worldId,
         string memory _appId,
         string memory _depositAction
     ) ReceiverTemplate(_forwarder) {
-        rwaToken = _rwaToken;
+        i_usdc = _usdc;
         i_worldId = _worldId;
 
         i_depositExternalNullifierHash = abi
@@ -186,26 +193,13 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
             )
             .hashToField();
 
-        // SRWA: 18 decimals, 100 tokens escrow
-        acceptedTokens[_rwaToken] = true;
-        escrowAmount[_rwaToken] = 100e18;
-
-        // USDC: 6 decimals, 100 USDC escrow
+        // USDC accepted for pool deposits (bidding collateral)
         acceptedTokens[_usdc] = true;
-        escrowAmount[_usdc] = 100e6;
     }
 
     ///////////////////
     // External Functions
     ///////////////////
-    function addAcceptedToken(
-        address token,
-        uint256 _escrowAmount
-    ) external onlyOwner {
-        acceptedTokens[token] = true;
-        escrowAmount[token] = _escrowAmount;
-        emit TokenAccepted(token, _escrowAmount);
-    }
 
     function depositToPool(
         address token,
@@ -218,8 +212,8 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         if (!acceptedTokens[token]) {
             revert SealBidAuction__TokenNotAccepted();
         }
-        if (amount != escrowAmount[token]) {
-            revert SealBidAuction__FixedAmountOnly();
+        if (amount == 0) {
+            revert SealBidAuction__InvalidAmount();
         }
         if (lockUntil <= block.timestamp) {
             revert SealBidAuction__LockMustBeInFuture();
@@ -280,64 +274,26 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         emit PoolWithdrawal(msg.sender, token, amount);
     }
 
-    function createAuction(
-        bytes32 auctionId,
-        address token,
-        uint256 deadline,
-        uint256 reservePrice
-    ) external {
-        if (auctions[auctionId].deadline != 0) {
-            revert SealBidAuction__AuctionAlreadyExists();
-        }
-        if (deadline <= block.timestamp) {
-            revert SealBidAuction__DeadlineMustBeFuture();
-        }
-        if (!acceptedTokens[token]) {
-            revert SealBidAuction__TokenNotAccepted();
-        }
-        if (activeAuctionId != bytes32(0)) {
-            revert SealBidAuction__AuctionAlreadyExists();
-        }
-
-        auctions[auctionId] = Auction({
-            seller: msg.sender,
-            token: token,
-            deadline: deadline,
-            reservePrice: reservePrice,
-            settled: false,
-            winner: address(0),
-            settledPrice: 0
-        });
-
-        activeAuctionId = auctionId;
-
-        emit AuctionCreated(
-            auctionId,
-            msg.sender,
-            token,
-            deadline,
-            reservePrice
-        );
-    }
-
     ///////////////////
     // Internal Functions
     ///////////////////
 
-    /// @notice Dispatches CRE reports to the correct handler using the workflowName from metadata.
-    /// @dev workflowName is bytes10 encoded per CRE spec: SHA256(name) → hex string → first 10
-    ///      hex chars → hex-encode those ASCII chars. Workflow yaml `name` fields must be set to
-    ///      "mint", "bid", or "settle" respectively.
+    /// @notice Dispatches CRE reports to the correct handler using workflowName from metadata.
     function _processReport(bytes calldata metadata, bytes calldata report) internal override {
         (, bytes10 workflowName,) = _decodeMetadata(metadata);
 
-        if (workflowName == WORKFLOW_MINT) {
-            (uint8 instructionType, address account, uint256 amount,) =
-                abi.decode(report, (uint8, address, uint256, bytes32));
-            if (instructionType != 1) {
-                revert SealBidAuction__UnknownInstructionType(instructionType);
-            }
-            _mintRWATokens(account, amount);
+        if (workflowName == WORKFLOW_CREATE) {
+            (
+                bytes32 propertyId,
+                address seller,
+                uint256 shareAmount,
+                string memory tokenName,
+                string memory tokenSymbol,
+                bytes32 auctionId,
+                uint256 deadline,
+                uint256 reservePrice
+            ) = abi.decode(report, (bytes32, address, uint256, string, string, bytes32, uint256, uint256));
+            _createPropertyAuction(propertyId, seller, shareAmount, tokenName, tokenSymbol, auctionId, deadline, reservePrice);
 
         } else if (workflowName == WORKFLOW_BID) {
             (bytes32 auctionId, bytes32 bidHash) =
@@ -354,10 +310,54 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         }
     }
 
-    /// @notice Mints RWA tokens to a recipient. Trusted via CRE DON consensus + KeystoneForwarder.
-    function _mintRWATokens(address to, uint256 amount) internal {
-        ISealBidRWAToken(rwaToken).mint(to, amount);
-        emit RWATokensMinted(to, amount);
+    /**
+     * @notice Deploy a per-property ERC-20 token, mint shares into escrow, and open the auction.
+     * Called exclusively via CRE "create" workflow report after off-chain property verification.
+     */
+    function _createPropertyAuction(
+        bytes32 propertyId,
+        address seller,
+        uint256 shareAmount,
+        string memory tokenName,
+        string memory tokenSymbol,
+        bytes32 auctionId,
+        uint256 deadline,
+        uint256 reservePrice
+    ) internal {
+        if (auctions[auctionId].deadline != 0) {
+            revert SealBidAuction__AuctionAlreadyExists();
+        }
+        if (activeAuctionId != bytes32(0)) {
+            revert SealBidAuction__AuctionAlreadyExists();
+        }
+        if (shareAmount == 0) {
+            revert SealBidAuction__InvalidAmount();
+        }
+
+        // Deploy a new property share token; this contract is the exclusive minter
+        SealBidRWAToken token = new SealBidRWAToken(tokenName, tokenSymbol, address(this));
+        address tokenAddress = address(token);
+        isPropertyToken[tokenAddress] = true;
+
+        // Mint share tokens directly into this contract's escrow (no seller approval needed)
+        ISealBidRWAToken(tokenAddress).mint(address(this), shareAmount);
+
+        auctions[auctionId] = Auction({
+            seller: seller,
+            tokenAddress: tokenAddress,
+            shareAmount: shareAmount,
+            deadline: deadline,
+            reservePrice: reservePrice,
+            settled: false,
+            winner: address(0),
+            settledPrice: 0
+        });
+
+        activeAuctionId = auctionId;
+
+        emit PropertyTokenCreated(tokenAddress, tokenName, tokenSymbol);
+        emit PropertyTokensMinted(tokenAddress, address(this), shareAmount);
+        emit AuctionCreated(auctionId, seller, tokenAddress, shareAmount, deadline, reservePrice);
     }
 
     /// @notice Registers an opaque bid hash on-chain for the given auction.
@@ -377,7 +377,7 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         emit BidRegistered(auctionId, bidHash);
     }
 
-    /// @notice Settles the auction with the Vickrey winner and price computed by the CRE enclave.
+    /// @notice Settles the auction: winner's USDC pool debited → seller gets USDC, winner gets property shares.
     function _settleAuction(bytes32 auctionId, address winner, uint256 price) internal {
         if (auctionId != activeAuctionId) {
             revert SealBidAuction__AuctionNotFound();
@@ -392,19 +392,23 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         if (a.settled) {
             revert SealBidAuction__AuctionAlreadySettled();
         }
-        if (poolBalance[winner][a.token] < price) {
+        if (poolBalance[winner][i_usdc] < price) {
             revert SealBidAuction__WinnerUnderfunded();
         }
 
         a.settled = true;
         a.winner = winner;
         a.settledPrice = price;
-
-        poolBalance[winner][a.token] -= price;
-
         activeAuctionId = bytes32(0);
 
-        if (!IERC20(a.token).transfer(a.seller, price)) {
+        // Debit winner's USDC pool → pay seller
+        poolBalance[winner][i_usdc] -= price;
+        if (!IERC20(i_usdc).transfer(a.seller, price)) {
+            revert SealBidAuction__TransferFailed();
+        }
+
+        // Release escrowed property share tokens → winner
+        if (!IERC20(a.tokenAddress).transfer(winner, a.shareAmount)) {
             revert SealBidAuction__TransferFailed();
         }
 
@@ -414,6 +418,8 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     // View & Pure Functions
     ///////////////////
+
+    /// @notice Returns true if the bidder has sufficient USDC pool balance and lock coverage for the auction.
     function canBid(
         address bidder,
         bytes32 auctionId
@@ -423,7 +429,7 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
             return false;
         }
         return
-            poolBalance[bidder][a.token] >= escrowAmount[a.token] &&
+            poolBalance[bidder][i_usdc] >= a.reservePrice &&
             lockExpiry[bidder] >= a.deadline;
     }
 

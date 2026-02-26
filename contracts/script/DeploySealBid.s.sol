@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {MockWorldIDRouter} from "../src/mocks/MockWorldIDRouter.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
-import {SealBidRWAToken} from "../src/SealBidRWAToken.sol";
 import {SealBidAuction} from "../src/SealBidAuction.sol";
 import {IWorldID} from "../src/interfaces/IWorldID.sol";
 
@@ -14,7 +13,6 @@ contract DeploySealBid is Script {
         returns (
             MockWorldIDRouter,
             MockUSDC,
-            SealBidRWAToken,
             SealBidAuction
         )
     {
@@ -36,40 +34,28 @@ contract DeploySealBid is Script {
         MockUSDC mockUsdc = new MockUSDC();
         console.log("[2/4] MockUSDC deployed:", address(mockUsdc));
 
-        // 3. Deploy SealBidRWAToken (deployer as temporary minter)
-        SealBidRWAToken rwaToken = new SealBidRWAToken(deployer);
-        console.log("[3/4] SealBidRWAToken deployed:", address(rwaToken));
-
-        // 4. Deploy SealBidAuction
-        // forwarder: use CHAINLINK_FORWARDER_ADDRESS env var if set, otherwise deployer (for local testing)
-        address forwarderAddress = vm.envOr("CHAINLINK_FORWARDER_ADDRESS", deployer);
-        console.log("Using forwarder address:", forwarderAddress);
-
+        // 3. Deploy SealBidAuction
+        // Property share tokens are deployed on-demand via the CRE create-auction workflow.
+        // No global RWA token needed at deploy time.
+        address forwarderAddress = vm.envOr("CHAINLINK_FORWARDER_ADDRESS", msg.sender);
         SealBidAuction auction = new SealBidAuction(
             forwarderAddress,
-            address(rwaToken),
             address(mockUsdc),
             IWorldID(address(mockWorldId)),
             appId,
             "deposit_to_pool"
         );
-        console.log("[4/4] SealBidAuction deployed:", address(auction));
-
-        // 5. Wire: auction contract becomes the minter for RWA token
-        rwaToken.setMinter(address(auction));
-        console.log("\nRWAToken minter set to SealBidAuction");
+        console.log("SealBidAuction deployed:", address(auction));
 
         vm.stopBroadcast();
-
         // Print summary for easy copy-paste
         console.log("\n=== Deployment Summary ===");
         console.log("MOCK_WORLD_ID_ADDRESS=%s", address(mockWorldId));
         console.log("MOCK_USDC_ADDRESS=%s", address(mockUsdc));
-        console.log("SRWA_TOKEN_ADDRESS=%s", address(rwaToken));
         console.log("SEAL_BID_AUCTION_ADDRESS=%s", address(auction));
         console.log("FORWARDER_ADDRESS=%s", forwarderAddress);
         console.log("==========================\n");
 
-        return (mockWorldId, mockUsdc, rwaToken, auction);
+        return (mockWorldId, mockUsdc, auction);
     }
 }

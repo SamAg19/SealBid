@@ -110,7 +110,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const balance = await getPoolBalance(bidder, onChainAuction.token);
+    const usdcAddress = process.env.USDC_ADDRESS!;
+    const balance = await getPoolBalance(bidder, usdcAddress);
     if (balance < bidAmountBn) {
       res.status(400).json({ error: "Insufficient pool balance" });
       return;
