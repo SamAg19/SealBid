@@ -35,29 +35,28 @@ const configSchema = z.object({
 })
 type Config = z.infer<typeof configSchema>
 
-// Payload sent by the property owner to trigger auction creation
+// Payload sent to trigger auction creation for a property NFT
 const createAuctionPayloadSchema = z.object({
-  propertyId: z.string(),                    // e.g. "PROP-001"
-  fractionBps: z.number().min(1).max(10000), // basis points of property to tokenize (2500 = 25%)
-  sellerAddress: z.string(),                 // Ethereum address of property owner / seller
-  deadline: z.number(),                      // auction end timestamp (unix seconds)
-  reservePrice: z.string(),                  // minimum bid in USDC (6-decimal string, e.g. "200000000000" = $200k)
-  tokenName: z.string(),                     // e.g. "123 Main St Share"
-  tokenSymbol: z.string(),                   // e.g. "MAIN123"
-  auctionId: z.string(),                     // bytes32 hex auction identifier
+  propertyId: z.string(),        // e.g. "PROP-001"
+  sellerAddress: z.string(),     // Ethereum address of property owner / seller
+  tokenId: z.number(),           // PropertyNFT tokenId (already minted)
+  deadline: z.number(),          // auction end timestamp (unix seconds)
+  reservePrice: z.string(),      // minimum bid in USDC (6-decimal string, e.g. "200000000000" = $200k)
+  auctionId: z.string(),         // bytes32 hex auction identifier
 })
 type CreateAuctionPayload = z.infer<typeof createAuctionPayloadSchema>
 
 type VerifyResult = {
   valid: boolean
-  shareAmount: string    // uint256 decimal string, 18-decimal scaled (e.g. "250000000000000000000000")
-  appraisedValue: string // total property appraised value in USD
+  tokenId: number          // assigned token ID
+  metadataHash: string     // keccak256 of property details
+  appraisedValue: string   // total property appraised value in USD
   message: string
 }
 
 // Verify property via Confidential HTTP.
-// The API checks: property exists, owner verified, not already tokenized, fractionBps valid.
-// Returns shareAmount = floor(appraisedValueUsd * fractionBps / 10000) * 1e18
+// The API checks: property exists, owner verified, not already tokenized.
+// Returns tokenId and metadataHash for NFT minting.
 const verifyProperty = (
   sendRequester: ConfidentialHTTPSendRequester,
   config: Config,
@@ -98,13 +97,12 @@ const onCreateAuction = (runtime: Runtime<Config>, payload: HTTPPayload): string
   const payloadJson = JSON.parse(payload.input.toString())
   const data = createAuctionPayloadSchema.parse(payloadJson)
 
-  runtime.log(`Create auction request: property=${data.propertyId} fraction=${data.fractionBps}bps seller=${data.sellerAddress}`)
+  runtime.log(`Create auction request: property=${data.propertyId} tokenId=${data.tokenId} seller=${data.sellerAddress}`)
 
   // 2. Verify property via Confidential HTTP
-  //    Bid amounts and seller details stay private — verification runs inside CRE enclave.
+  //    Property details stay private — verification runs inside CRE enclave.
   const verifyBody = JSON.stringify({
     propertyId: data.propertyId,
-    fractionBps: data.fractionBps,
     sellerAddress: data.sellerAddress,
   })
 
@@ -121,11 +119,10 @@ const onCreateAuction = (runtime: Runtime<Config>, payload: HTTPPayload): string
     throw new Error(`Property verification failed: ${verifyResult.message}`)
   }
 
-  runtime.log(`Property ${data.propertyId} verified. Shares: ${verifyResult.shareAmount}. Appraised: $${verifyResult.appraisedValue}`)
+  runtime.log(`Property ${data.propertyId} verified. TokenId: ${data.tokenId}. Appraised: $${verifyResult.appraisedValue}`)
 
   // 3. Encode report for contract:
-  //    _createPropertyAuction(propertyId, seller, shareAmount, tokenName, tokenSymbol,
-  //                            auctionId, deadline, reservePrice)
+  //    _createPropertyAuction(propertyId, seller, tokenId, auctionId, deadline, reservePrice)
   const checksummedSeller = getAddress(data.sellerAddress)
 
   // Convert propertyId string to bytes32
@@ -134,14 +131,12 @@ const onCreateAuction = (runtime: Runtime<Config>, payload: HTTPPayload): string
 
   const reportData = encodeAbiParameters(
     parseAbiParameters(
-      "bytes32 propertyId, address seller, uint256 shareAmount, string tokenName, string tokenSymbol, bytes32 auctionId, uint256 deadline, uint256 reservePrice"
+      "bytes32 propertyId, address seller, uint256 tokenId, bytes32 auctionId, uint256 deadline, uint256 reservePrice"
     ),
     [
       propertyIdHex,
       checksummedSeller,
-      BigInt(verifyResult.shareAmount),
-      data.tokenName,
-      data.tokenSymbol,
+      BigInt(data.tokenId),
       data.auctionId as `0x${string}`,
       BigInt(data.deadline),
       BigInt(data.reservePrice),
@@ -177,7 +172,7 @@ const onCreateAuction = (runtime: Runtime<Config>, payload: HTTPPayload): string
 
   const txHash = bytesToHex(writeResult.txHash || new Uint8Array(32))
   runtime.log(`createPropertyAuction submitted: ${txHash}`)
-  runtime.log(`Token deployed: ${data.tokenName} (${data.tokenSymbol}), Shares: ${verifyResult.shareAmount}`)
+  runtime.log(`Auction created for tokenId=${data.tokenId}, reserve=${data.reservePrice}`)
   return txHash
 }
 

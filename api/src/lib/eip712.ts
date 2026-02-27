@@ -1,13 +1,13 @@
 import { ethers } from "ethers";
 
 /**
- * EIP-712 typed data domain and types for SealBid bids.
+ * EIP-712 typed data domain and types for LienFi bids.
  *
  * Domain:
- *   name: "SealBid"
+ *   name: "LienFi"
  *   version: "1"
  *   chainId: 11155111 (Sepolia)
- *   verifyingContract: <SealBidAuction address>
+ *   verifyingContract: <LienFiAuction address>
  */
 
 const BID_TYPES = {
@@ -21,7 +21,7 @@ const BID_TYPES = {
 
 function getDomain(): ethers.TypedDataDomain {
   return {
-    name: "SealBid",
+    name: "LienFi",
     version: "1",
     chainId: parseInt(process.env.CHAIN_ID || "11155111"),
     verifyingContract: process.env.VERIFYING_CONTRACT || ethers.ZeroAddress,

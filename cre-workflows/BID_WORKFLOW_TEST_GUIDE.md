@@ -14,16 +14,16 @@ This guide walks through the steps to test the bid workflow end-to-end.
 ```bash
 cd contracts
 source .env
-forge script script/DeploySealBid.s.sol:DeploySealBid --rpc-url "$SEPOLIA_RPC_URL" --broadcast
+forge script script/DeployLienFi.s.sol:DeployLienFi --rpc-url "$SEPOLIA_RPC_URL" --broadcast
 ```
 
 Note the deployed addresses from the output:
 - `MOCK_USDC_ADDRESS`
-- `SEAL_BID_AUCTION_ADDRESS`
+- `LIENFI_AUCTION_ADDRESS`
 
 ## Step 2: Update Contract Addresses
 
-Update the new `SealBidAuction` address in the following files:
+Update the new `LienFiAuction` address in the following files:
 
 | File | Field |
 |------|-------|
@@ -55,7 +55,7 @@ Run these commands to create an auction and fund the bidder:
 export RPC_URL="<your-sepolia-rpc-url>"
 export PK="<your-private-key>"
 export MOCK_USDC="<MockUSDC-address>"
-export AUCTION="<SealBidAuction-address>"
+export AUCTION="<LienFiAuction-address>"
 export BIDDER="<your-wallet-address>"
 export AUCTION_ID=0x0000000000000000000000000000000000000000000000000000000000000001
 export DEADLINE=$(($(date +%s) + 3600))
@@ -95,7 +95,7 @@ A script is already created at `cre-workflows/generate-bid-payload.ts`.
 
 Before running, ensure these values are correct in the script:
 - `PRIVATE_KEY` - Your wallet private key
-- `VERIFYING_CONTRACT` - The SealBidAuction address
+- `VERIFYING_CONTRACT` - The LienFiAuction address
 - `AUCTION_ID` - The auction you created
 - `BID_AMOUNT` - Must be >= reserve price (1000000 for 1 USDC)
 - `NONCE` - Unique per bid (increment if retesting)
@@ -152,7 +152,7 @@ Compiling workflow...
 You can test the API without CRE simulation:
 
 ```bash
-curl -X POST https://sealbid.onrender.com/bid \
+curl -X POST https://lienfi.onrender.com/bid \
   -H "Content-Type: application/json" \
   -H "X-Api-Key: <your-BID_API_KEY>" \
   -d @bid-payload.json
@@ -170,7 +170,7 @@ Expected response:
 
 | File | Purpose |
 |------|---------|
-| `contracts/script/DeploySealBid.s.sol` | Contract deployment script |
+| `contracts/script/DeployLienFi.s.sol` | Contract deployment script |
 | `api/.env` | API environment variables |
 | `cre-workflows/.env` | CRE CLI environment variables |
 | `cre-workflows/secrets.yaml` | CRE vault secrets mapping |

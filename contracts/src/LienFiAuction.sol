@@ -25,31 +25,24 @@ pragma solidity ^0.8.24;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IWorldID} from "./interfaces/IWorldID.sol";
-import {ISealBidRWAToken} from "./interfaces/ISealBidRWAToken.sol";
-import {SealBidRWAToken} from "./SealBidRWAToken.sol";
 import {ByteHasher} from "./libraries/ByteHasher.sol";
 import {ReceiverTemplate} from "./ReceiverTemplate.sol";
 
 /**
- * @title SealBidAuction
- * @author SealBid Team
+ * @title LienFi Auction
+ * @author LienFi Team
  *
- * Privacy-preserving sealed-bid auction platform for fractional real estate equity.
+ * Privacy-preserving sealed-bid auction platform for tokenized real estate.
  *
- * A property owner tokenizes a fraction of their property by sending a payload to the
- * CRE create-auction workflow. The workflow verifies the property off-chain via Confidential
- * HTTP, then delivers a DON-signed report that triggers this contract to:
- *   1. Deploy a new ERC-20 property share token (one per property)
- *   2. Mint the verified share amount directly into this contract's escrow
- *   3. Open the sealed-bid auction
- *
- * Bidders compete with USDC. The Vickrey winner pays second-price in USDC and receives
- * the property share tokens. The seller receives the USDC.
+ * Each property is represented by an ERC-721 token (PropertyNFT). The NFT is held in escrow
+ * by this contract during the auction. Bidders compete with USDC. The Vickrey winner pays
+ * second-price in USDC and receives the property NFT. The seller receives the USDC.
  *
  * Properties:
- * - Per-property tokens: each property gets its own ERC-20 deployed inside _createPropertyAuction.
- *   Only contract-deployed tokens are held in escrow; no external token injection.
+ * - One ERC-721 per property: the PropertyNFT contract address is set at deploy time.
+ *   The NFT must be transferred to this contract before auction creation.
  * - Bid token is always USDC (i_usdc immutable): bidders deposit arbitrary USDC amounts.
  * - World ID integration: pool deposits require ZK proof — one human, one deposit.
  * - Auction lifecycle: CRE-only bid registration and settlement via onReport.
@@ -63,13 +56,12 @@ import {ReceiverTemplate} from "./ReceiverTemplate.sol";
  *   "settle" → _settleAuction
  *
  * Workflow report encodings:
- *   create: abi.encode(bytes32 propertyId, address seller, uint256 shareAmount,
- *                      string tokenName, string tokenSymbol,
+ *   create: abi.encode(bytes32 propertyId, address seller, uint256 tokenId,
  *                      bytes32 auctionId, uint256 deadline, uint256 reservePrice)
  *   bid:    abi.encode(bytes32 auctionId, bytes32 bidHash)
  *   settle: abi.encode(bytes32 auctionId, address winner, uint256 price)
  */
-contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
+contract LienFiAuction is ReceiverTemplate, ReentrancyGuard {
     using ByteHasher for bytes;
 
     ///////////////////
@@ -86,31 +78,30 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     // Errors
     ///////////////////
-    error SealBidAuction__InvalidNullifier();
-    error SealBidAuction__TokenNotAccepted();
-    error SealBidAuction__InvalidAmount();
-    error SealBidAuction__LockMustBeInFuture();
-    error SealBidAuction__TransferFailed();
-    error SealBidAuction__FundsLocked();
-    error SealBidAuction__InsufficientBalance();
-    error SealBidAuction__AuctionNotFound();
-    error SealBidAuction__AuctionAlreadyExists();
-    error SealBidAuction__DeadlineMustBeFuture();
-    error SealBidAuction__AuctionExpired();
-    error SealBidAuction__AuctionNotExpired();
-    error SealBidAuction__AuctionAlreadySettled();
-    error SealBidAuction__WinnerUnderfunded();
-    error SealBidAuction__CanOnlyExtendLock();
-    error SealBidAuction__UnknownWorkflow(bytes10 workflowName);
-    error SealBidAuction__UnknownInstructionType(uint8 instructionType);
+    error LienFiAuction__InvalidNullifier();
+    error LienFiAuction__TokenNotAccepted();
+    error LienFiAuction__InvalidAmount();
+    error LienFiAuction__LockMustBeInFuture();
+    error LienFiAuction__TransferFailed();
+    error LienFiAuction__FundsLocked();
+    error LienFiAuction__InsufficientBalance();
+    error LienFiAuction__AuctionNotFound();
+    error LienFiAuction__AuctionAlreadyExists();
+    error LienFiAuction__DeadlineMustBeFuture();
+    error LienFiAuction__AuctionExpired();
+    error LienFiAuction__AuctionNotExpired();
+    error LienFiAuction__AuctionAlreadySettled();
+    error LienFiAuction__WinnerUnderfunded();
+    error LienFiAuction__CanOnlyExtendLock();
+    error LienFiAuction__UnknownWorkflow(bytes10 workflowName);
+    error LienFiAuction__UnknownInstructionType(uint8 instructionType);
 
     ///////////////////
     // Type Declarations
     ///////////////////
     struct Auction {
         address seller;
-        address tokenAddress;  // property ERC-20 deployed by this contract
-        uint256 shareAmount;   // property share tokens held in escrow by this contract
+        uint256 tokenId;       // PropertyNFT token held in escrow
         uint256 deadline;
         uint256 reservePrice;  // USDC (6 decimals)
         bool settled;
@@ -123,12 +114,10 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     IWorldID public immutable i_worldId;
     address public immutable i_usdc;
+    address public immutable i_propertyNFT;
     uint256 public immutable i_groupId = 1;
     uint256 public immutable i_depositExternalNullifierHash;
     mapping(uint256 => bool) public nullifierHashes;
-
-    // Per-property token registry — only tokens deployed by this contract
-    mapping(address => bool) public isPropertyToken;
 
     // Deposit Pool — USDC accepted for bidding
     mapping(address => bool) public acceptedTokens;
@@ -144,8 +133,6 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     ///////////////////
     // Events
     ///////////////////
-    event PropertyTokenCreated(address indexed tokenAddress, string name, string symbol);
-    event PropertyTokensMinted(address indexed tokenAddress, address indexed to, uint256 amount);
     event PoolDeposit(
         address indexed depositor,
         address indexed token,
@@ -161,8 +148,7 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     event AuctionCreated(
         bytes32 indexed auctionId,
         address indexed seller,
-        address indexed tokenAddress,
-        uint256 shareAmount,
+        uint256 indexed tokenId,
         uint256 deadline,
         uint256 reservePrice
     );
@@ -179,11 +165,13 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
     constructor(
         address _forwarder,
         address _usdc,
+        address _propertyNFT,
         IWorldID _worldId,
         string memory _appId,
         string memory _depositAction
     ) ReceiverTemplate(_forwarder) {
         i_usdc = _usdc;
+        i_propertyNFT = _propertyNFT;
         i_worldId = _worldId;
 
         i_depositExternalNullifierHash = abi
@@ -210,16 +198,16 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         uint256[8] calldata proof
     ) external {
         if (!acceptedTokens[token]) {
-            revert SealBidAuction__TokenNotAccepted();
+            revert LienFiAuction__TokenNotAccepted();
         }
         if (amount == 0) {
-            revert SealBidAuction__InvalidAmount();
+            revert LienFiAuction__InvalidAmount();
         }
         if (lockUntil <= block.timestamp) {
-            revert SealBidAuction__LockMustBeInFuture();
+            revert LienFiAuction__LockMustBeInFuture();
         }
         if (nullifierHashes[nullifierHash]) {
-            revert SealBidAuction__InvalidNullifier();
+            revert LienFiAuction__InvalidNullifier();
         }
 
         i_worldId.verifyProof(
@@ -234,7 +222,7 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         nullifierHashes[nullifierHash] = true;
 
         if (!IERC20(token).transferFrom(msg.sender, address(this), amount)) {
-            revert SealBidAuction__TransferFailed();
+            revert LienFiAuction__TransferFailed();
         }
 
         poolBalance[msg.sender][token] += amount;
@@ -248,7 +236,7 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
 
     function extendLock(uint256 newExpiry) external {
         if (newExpiry <= lockExpiry[msg.sender]) {
-            revert SealBidAuction__CanOnlyExtendLock();
+            revert LienFiAuction__CanOnlyExtendLock();
         }
         lockExpiry[msg.sender] = newExpiry;
         emit LockExtended(msg.sender, newExpiry);
@@ -259,16 +247,16 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         uint256 amount
     ) external nonReentrant {
         if (block.timestamp < lockExpiry[msg.sender]) {
-            revert SealBidAuction__FundsLocked();
+            revert LienFiAuction__FundsLocked();
         }
         if (poolBalance[msg.sender][token] < amount) {
-            revert SealBidAuction__InsufficientBalance();
+            revert LienFiAuction__InsufficientBalance();
         }
 
         poolBalance[msg.sender][token] -= amount;
 
         if (!IERC20(token).transfer(msg.sender, amount)) {
-            revert SealBidAuction__TransferFailed();
+            revert LienFiAuction__TransferFailed();
         }
 
         emit PoolWithdrawal(msg.sender, token, amount);
@@ -286,14 +274,12 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
             (
                 bytes32 propertyId,
                 address seller,
-                uint256 shareAmount,
-                string memory tokenName,
-                string memory tokenSymbol,
+                uint256 tokenId,
                 bytes32 auctionId,
                 uint256 deadline,
                 uint256 reservePrice
-            ) = abi.decode(report, (bytes32, address, uint256, string, string, bytes32, uint256, uint256));
-            _createPropertyAuction(propertyId, seller, shareAmount, tokenName, tokenSymbol, auctionId, deadline, reservePrice);
+            ) = abi.decode(report, (bytes32, address, uint256, bytes32, uint256, uint256));
+            _createPropertyAuction(propertyId, seller, tokenId, auctionId, deadline, reservePrice);
 
         } else if (workflowName == WORKFLOW_BID) {
             (bytes32 auctionId, bytes32 bidHash) =
@@ -306,46 +292,38 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
             _settleAuction(auctionId, winner, price);
 
         } else {
-            revert SealBidAuction__UnknownWorkflow(workflowName);
+            revert LienFiAuction__UnknownWorkflow(workflowName);
         }
     }
 
     /**
-     * @notice Deploy a per-property ERC-20 token, mint shares into escrow, and open the auction.
+     * @notice Open a sealed-bid auction for a property NFT already held in escrow.
      * Called exclusively via CRE "create" workflow report after off-chain property verification.
+     * The NFT must have been transferred to this contract before the report is submitted.
      */
     function _createPropertyAuction(
         bytes32 propertyId,
         address seller,
-        uint256 shareAmount,
-        string memory tokenName,
-        string memory tokenSymbol,
+        uint256 tokenId,
         bytes32 auctionId,
         uint256 deadline,
         uint256 reservePrice
     ) internal {
         if (auctions[auctionId].deadline != 0) {
-            revert SealBidAuction__AuctionAlreadyExists();
+            revert LienFiAuction__AuctionAlreadyExists();
         }
         if (activeAuctionId != bytes32(0)) {
-            revert SealBidAuction__AuctionAlreadyExists();
-        }
-        if (shareAmount == 0) {
-            revert SealBidAuction__InvalidAmount();
+            revert LienFiAuction__AuctionAlreadyExists();
         }
 
-        // Deploy a new property share token; this contract is the exclusive minter
-        SealBidRWAToken token = new SealBidRWAToken(tokenName, tokenSymbol, address(this));
-        address tokenAddress = address(token);
-        isPropertyToken[tokenAddress] = true;
-
-        // Mint share tokens directly into this contract's escrow (no seller approval needed)
-        ISealBidRWAToken(tokenAddress).mint(address(this), shareAmount);
+        // Verify this contract holds the NFT in escrow
+        if (IERC721(i_propertyNFT).ownerOf(tokenId) != address(this)) {
+            revert LienFiAuction__TransferFailed();
+        }
 
         auctions[auctionId] = Auction({
             seller: seller,
-            tokenAddress: tokenAddress,
-            shareAmount: shareAmount,
+            tokenId: tokenId,
             deadline: deadline,
             reservePrice: reservePrice,
             settled: false,
@@ -355,45 +333,43 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
 
         activeAuctionId = auctionId;
 
-        emit PropertyTokenCreated(tokenAddress, tokenName, tokenSymbol);
-        emit PropertyTokensMinted(tokenAddress, address(this), shareAmount);
-        emit AuctionCreated(auctionId, seller, tokenAddress, shareAmount, deadline, reservePrice);
+        emit AuctionCreated(auctionId, seller, tokenId, deadline, reservePrice);
     }
 
     /// @notice Registers an opaque bid hash on-chain for the given auction.
     function _registerBid(bytes32 auctionId, bytes32 bidHash) internal {
         Auction storage a = auctions[auctionId];
         if (a.deadline == 0) {
-            revert SealBidAuction__AuctionNotFound();
+            revert LienFiAuction__AuctionNotFound();
         }
         if (block.timestamp >= a.deadline) {
-            revert SealBidAuction__AuctionExpired();
+            revert LienFiAuction__AuctionExpired();
         }
         if (a.settled) {
-            revert SealBidAuction__AuctionAlreadySettled();
+            revert LienFiAuction__AuctionAlreadySettled();
         }
 
         bidHashes[auctionId].push(bidHash);
         emit BidRegistered(auctionId, bidHash);
     }
 
-    /// @notice Settles the auction: winner's USDC pool debited → seller gets USDC, winner gets property shares.
+    /// @notice Settles the auction: winner's USDC pool debited → seller gets USDC, winner gets property NFT.
     function _settleAuction(bytes32 auctionId, address winner, uint256 price) internal {
         if (auctionId != activeAuctionId) {
-            revert SealBidAuction__AuctionNotFound();
+            revert LienFiAuction__AuctionNotFound();
         }
         Auction storage a = auctions[auctionId];
         if (a.deadline == 0) {
-            revert SealBidAuction__AuctionNotFound();
+            revert LienFiAuction__AuctionNotFound();
         }
         if (block.timestamp < a.deadline) {
-            revert SealBidAuction__AuctionNotExpired();
+            revert LienFiAuction__AuctionNotExpired();
         }
         if (a.settled) {
-            revert SealBidAuction__AuctionAlreadySettled();
+            revert LienFiAuction__AuctionAlreadySettled();
         }
         if (poolBalance[winner][i_usdc] < price) {
-            revert SealBidAuction__WinnerUnderfunded();
+            revert LienFiAuction__WinnerUnderfunded();
         }
 
         a.settled = true;
@@ -404,13 +380,11 @@ contract SealBidAuction is ReceiverTemplate, ReentrancyGuard {
         // Debit winner's USDC pool → pay seller
         poolBalance[winner][i_usdc] -= price;
         if (!IERC20(i_usdc).transfer(a.seller, price)) {
-            revert SealBidAuction__TransferFailed();
+            revert LienFiAuction__TransferFailed();
         }
 
-        // Release escrowed property share tokens → winner
-        if (!IERC20(a.tokenAddress).transfer(winner, a.shareAmount)) {
-            revert SealBidAuction__TransferFailed();
-        }
+        // Transfer property NFT from escrow → winner
+        IERC721(i_propertyNFT).safeTransferFrom(address(this), winner, a.tokenId);
 
         emit AuctionSettled(auctionId, winner, price);
     }

@@ -29,7 +29,7 @@ app.use("/verify-property", authMiddleware, verifyPropertyRouter);
 
 // --- Start server ---
 app.listen(PORT, () => {
-  console.log(`\n SealBid API running on port ${PORT}`);
+  console.log(`\n LienFi API running on port ${PORT}`);
   console.log(`   POST /bid              — Submit a signed bid`);
   console.log(`   POST /settle           — Run Vickrey settlement`);
   console.log(`   GET  /status/:id       — Auction status`);
