@@ -1,0 +1,13 @@
+{
+  "url": "https://lienfi.onrender.com",
+  "owner": "0xf6aC8a8715024fE9Ff592D6A3f186E2B502B356a",
+  "evms": [
+    {
+      "chainSelectorName": "ethereum-testnet-sepolia",
+      "loanManagerAddress": "TODO: 0x<LoanManager-address>",
+      "lendingPoolAddress": "TODO: 0x<LendingPool-address>",
+      "gasLimit": "500000"
+    }
+  ],
+  "interestRateBps": 800
+}
