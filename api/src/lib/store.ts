@@ -126,3 +126,29 @@ export function storeProperty(property: StoredProperty): void {
 export function getProperty(tokenId: number): StoredProperty | null {
   return properties.get(tokenId) || null;
 }
+
+// ─── Loan Request Storage ────────────────────────────────────────────────────
+
+export interface StoredLoanRequest {
+  requestHash: string;
+  borrowerAddress: string;
+  plaidToken: string;
+  tokenId: number;
+  requestedAmount: string; // uint256 decimal string (USDC 6 decimals)
+  tenureMonths: number;
+  nonce: number; // provided by borrower, tracked on-chain in LoanManager
+  timestamp: number;
+}
+
+// In-memory store — keyed by requestHash
+const loanRequests: Map<string, StoredLoanRequest> = new Map();
+
+export function storeLoanRequest(request: StoredLoanRequest): boolean {
+  if (loanRequests.has(request.requestHash)) return false;
+  loanRequests.set(request.requestHash, request);
+  return true;
+}
+
+export function getLoanRequest(requestHash: string): StoredLoanRequest | null {
+  return loanRequests.get(requestHash) || null;
+}
