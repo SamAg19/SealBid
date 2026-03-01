@@ -6,6 +6,7 @@ import bidRouter from "./routes/bid";
 import settleRouter from "./routes/settle";
 import statusRouter from "./routes/status";
 import verifyPropertyRouter from "./routes/verifyProperty";
+import loanRequestRouter from "./routes/loanRequest";
 
 dotenv.config();
 
@@ -26,14 +27,17 @@ app.use("/bid", authMiddleware, bidRouter);
 app.use("/settle", authMiddleware, settleRouter);
 app.use("/status", authMiddleware, statusRouter);
 app.use("/verify-property", authMiddleware, verifyPropertyRouter);
+app.use("/loan-request", authMiddleware, loanRequestRouter);
 
 // --- Start server ---
 app.listen(PORT, () => {
-  console.log(`\n SealBid API running on port ${PORT}`);
+  console.log(`\n LienFi API running on port ${PORT}`);
   console.log(`   POST /bid              — Submit a signed bid`);
   console.log(`   POST /settle           — Run Vickrey settlement`);
   console.log(`   GET  /status/:id       — Auction status`);
   console.log(`   POST /verify-property  — Verify property for tokenization`);
+  console.log(`   POST /loan-request     — Submit loan request details`);
+  console.log(`   GET  /loan-request/:h  — Fetch loan request by hash`);
   console.log(`   GET  /health           — Health check\n`);
 });
 

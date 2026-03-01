@@ -18,9 +18,9 @@ import {
 } from "@chainlink/cre-sdk"
 import { encodeFunctionData, decodeFunctionResult, encodeAbiParameters, parseAbiParameters, type Address, type Abi, zeroAddress } from "viem"
 import { z } from "zod"
-import SealBidAuctionABI from "../abis/SealBidAuctionABI.json"
+import LienFiAuctionABI from "../abis/LienFiAuctionABI.json"
 
-const ABI = SealBidAuctionABI as Abi
+const ABI = LienFiAuctionABI as Abi
 const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
 const configSchema = z.object({

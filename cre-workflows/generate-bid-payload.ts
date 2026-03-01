@@ -13,7 +13,7 @@ async function main() {
   const wallet = new ethers.Wallet(PRIVATE_KEY);
 
   const domain = {
-    name: "SealBid",
+    name: "LienFi",
     version: "1",
     chainId: CHAIN_ID,
     verifyingContract: VERIFYING_CONTRACT,

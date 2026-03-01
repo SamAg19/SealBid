@@ -62,7 +62,7 @@ LienFi is a complete mortgage primitive with no step requiring a bank, appraiser
 | **C. Credit Assessment** | Borrower submits loan request hash on-chain. CRE auto-triggers: Plaid data fetch, metric extraction, hard rule gates, Gemini AI scoring. Raw data discarded after. | Financial data never on-chain |
 | **D. Loan Disbursement** | Approved borrower locks PropertyNFT as collateral. USDC disbursed from pool. Loan record created on-chain. | Approval visible, financials hidden |
 | **E. Monthly Repayment** | Borrower pays fixed EMI. Full amount enters pool, raising clUSDC exchange rate. On full repayment, NFT returned. | EMI schedule public |
-| **F. Default + Auction** | 3 missed payments trigger default. PropertyNFT transferred to SealBidAuction. Sanitized listing (no address, no "default" label). Sealed bids via CRE. Vickrey settlement. Winner gets NFT + full address reveal. | Bids, bidders, losing bids all hidden |
+| **F. Default + Auction** | 3 missed payments trigger default. PropertyNFT transferred to LienFiAuction. Sanitized listing (no address, no "default" label). Sealed bids via CRE. Vickrey settlement. Winner gets NFT + full address reveal. | Bids, bidders, losing bids all hidden |
 
 ### Key Features
 
@@ -193,8 +193,8 @@ LienFi is a complete mortgage primitive with no step requiring a bank, appraiser
                     |                |
                     |                v
                     |       loan.status = DEFAULTED
-                    |       PropertyNFT -> SealBidAuction
-                    |       SealBidAuction.initiateDefaultAuction(
+                    |       PropertyNFT -> LienFiAuction
+                    |       LienFiAuction.initiateDefaultAuction(
                     |           tokenId, reservePrice=remainingPrincipal)
                     |
                     v
@@ -225,7 +225,7 @@ LienFi is a complete mortgage primitive with no step requiring a bank, appraiser
       |    return opaque bidHash                                   |
       +------------------------------------------------------------+
                     |
-                    --> SealBidAuction: only bidHash stored on-chain
+                    --> LienFiAuction: only bidHash stored on-chain
                           (bid amount invisible to all observers)
 
   [auction deadline passes]
@@ -239,7 +239,7 @@ LienFi is a complete mortgage primitive with no step requiring a bank, appraiser
       +------------------------------------------------------------+
                     |
                     v
-      SealBidAuction._settleAuction(winner, price)
+      LienFiAuction._settleAuction(winner, price)
                     |
                     |-> PropertyNFT transferred to winner
                     |
@@ -282,7 +282,7 @@ LienFi is a complete mortgage primitive with no step requiring a bank, appraiser
 | **LoanManager** | Core contract — owns the full mortgage lifecycle from origination through repayment to liquidation |
 | **LendingPool** | Holds USDC, disburses loans, receives EMI repayments, manages clUSDC exchange rate |
 | **PropertyNFT** | ERC-721 — one token per property, commitment hash only, no metadata on-chain |
-| **SealBidAuction** | Sealed-bid Vickrey auction for defaulted properties — deposit pool, World ID, opaque bid hashes |
+| **LienFiAuction** | Sealed-bid Vickrey auction for defaulted properties — deposit pool, World ID, opaque bid hashes |
 
 ---
 
@@ -317,8 +317,8 @@ LienFi is a complete mortgage primitive with no step requiring a bank, appraiser
 
 | Contract | Purpose |
 |----------|---------|
-| **SealBidAuction.sol** | Core auction + deposit pool + World ID sybil resistance + opaque bid hash storage + Vickrey settlement via CRE |
-| **SealBidRWAToken.sol** | ERC-20 RWA token with restricted minting (to be replaced by PropertyNFT) |
+| **LienFiAuction.sol** | Core auction + deposit pool + World ID sybil resistance + opaque bid hash storage + Vickrey settlement via CRE |
+| **LienFiRWAToken.sol** | ERC-20 RWA token with restricted minting (to be replaced by PropertyNFT) |
 | **MockWorldIDRouter.sol** | Always-passing World ID mock for testing |
 | **MockUSDC.sol** | Test USDC token (6 decimals) with public mint |
 | **ReceiverTemplate.sol** | Abstract base for receiving Keystone CRE DON-signed reports |
@@ -364,7 +364,7 @@ LienFi is a complete mortgage primitive with no step requiring a bank, appraiser
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Smart Contracts** | Solidity 0.8.24 + Foundry | LoanManager, LendingPool, SealBidAuction, PropertyNFT, clUSDC |
+| **Smart Contracts** | Solidity 0.8.24 + Foundry | LoanManager, LendingPool, LienFiAuction, PropertyNFT, clUSDC |
 | **Contract Libraries** | OpenZeppelin | ERC-20, ERC-721, Ownable, ReentrancyGuard |
 | **Identity** | World ID (Worldcoin) | On-chain ZK proof verification, sybil resistance |
 | **Confidential Compute** | Chainlink CRE | 5 workflows — mint, bid, settle, credit assessment, listing |
@@ -400,7 +400,7 @@ cp .env.example .env
 # Edit .env: add PRIVATE_KEY, SEPOLIA_RPC_URL, WORLD_ID_APP_ID
 
 source .env
-forge script script/DeploySealBid.s.sol:DeploySealBid \
+forge script script/DeployLienFi.s.sol:DeployLienFi \
   --rpc-url "$SEPOLIA_RPC_URL" --broadcast
 
 # Note the deployed addresses from the output
@@ -448,7 +448,7 @@ GEMINI_API_KEY=...
 INTEREST_RATE_BPS=800    # 8% annual
 
 # --- Deployed Contracts (populated after deployment) ---
-SEAL_BID_AUCTION=0x...
+LIENFI_AUCTION=0x...
 LENDING_POOL=0x...
 LOAN_MANAGER=0x...
 PROPERTY_NFT=0x...
@@ -484,8 +484,8 @@ The sealed-bid auction engine is fully implemented and tested on Sepolia:
 
 | Component | Status |
 |-----------|--------|
-| `SealBidAuction.sol` — deposit pool, World ID, opaque bid hashes, Vickrey settlement | Deployed |
-| `SealBidRWAToken.sol` — ERC-20 RWA token (will be replaced by ERC-721 PropertyNFT) | Deployed |
+| `LienFiAuction.sol` — deposit pool, World ID, opaque bid hashes, Vickrey settlement | Deployed |
+| `LienFiRWAToken.sol` — ERC-20 RWA token (will be replaced by ERC-721 PropertyNFT) | Deployed |
 | CRE bid-workflow — HTTP-triggered sealed bid collection via Confidential HTTP | Deployed |
 | CRE settlement-workflow — cron-triggered Vickrey settlement | Deployed |
 | CRE mint-workflow — HTTP-triggered RWA token minting | Deployed |
@@ -501,8 +501,8 @@ The sealed-bid auction engine is fully implemented and tested on Sepolia:
 lienfi/
 ├── contracts/                           # Solidity smart contracts (Foundry)
 │   ├── src/
-│   │   ├── SealBidAuction.sol           # Auction: pool + World ID + sealed bids + Vickrey
-│   │   ├── SealBidRWAToken.sol          # ERC-20 RWA token (being replaced by PropertyNFT)
+│   │   ├── LienFiAuction.sol           # Auction: pool + World ID + sealed bids + Vickrey
+│   │   ├── LienFiRWAToken.sol          # ERC-20 RWA token (being replaced by PropertyNFT)
 │   │   ├── LoanManager.sol              # [NEW] Full mortgage lifecycle + CRE verdict receiver
 │   │   ├── LendingPool.sol              # [NEW] USDC pool, disburse, EMI collection
 │   │   ├── clUSDC.sol                   # [NEW] Receipt token, appreciating exchange rate
@@ -510,14 +510,14 @@ lienfi/
 │   │   ├── ReceiverTemplate.sol         # Abstract base for Keystone CRE reports
 │   │   ├── interfaces/
 │   │   │   ├── IWorldID.sol
-│   │   │   └── ISealBidRWAToken.sol
+│   │   │   └── ILienFiRWAToken.sol
 │   │   ├── libraries/
 │   │   │   └── ByteHasher.sol           # World ID field hashing
 │   │   └── mocks/
 │   │       ├── MockWorldIDRouter.sol     # Always-pass World ID for testing
 │   │       └── MockUSDC.sol             # 6-decimal test USDC
 │   ├── script/
-│   │   └── DeploySealBid.s.sol          # Full deployment + wiring script
+│   │   └── DeployLienFi.s.sol          # Full deployment + wiring script
 │   └── foundry.toml
 ├── api/                                 # Private API (Express.js + TypeScript)
 │   ├── src/

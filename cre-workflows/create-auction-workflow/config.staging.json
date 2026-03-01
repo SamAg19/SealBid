@@ -4,7 +4,7 @@
   "evms": [
     {
       "chainSelectorName": "ethereum-testnet-sepolia",
-      "consumerAddress": "TODO: 0x<SealBidAuction-address>",
+      "consumerAddress": "TODO: 0x<LienFiAuction-address>",
       "gasLimit": "500000"
     }
   ]

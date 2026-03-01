@@ -1,0 +1,14 @@
+# ==========================================================================
+# CRE WORKFLOW SETTINGS FILE
+# ==========================================================================
+# Credit Assessment Workflow — triggered by LoanRequestSubmitted event
+# Fetches borrower details, runs Plaid + Gemini assessment, writes verdict
+
+# ==========================================================================
+staging-settings:
+  user-workflow:
+    workflow-name: "credit-assessment"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.staging.json"
+    secrets-path: "../secrets.yaml"

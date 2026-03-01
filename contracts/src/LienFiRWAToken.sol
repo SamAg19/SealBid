@@ -27,26 +27,26 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
- * @title SealBidRWAToken
- * @author SealBid Team
+ * @title LienFiRWAToken
+ * @author LienFi Team
  *
  * A minimal ERC-20 token template representing fractional ownership of a real estate property.
- * One instance is deployed per property via SealBidAuction.createPropertyToken().
+ * One instance is deployed per property via LienFiAuction.createPropertyToken().
  *
  * Properties:
- * - Restricted minting: only the designated minter (SealBidAuction contract) can mint
+ * - Restricted minting: only the designated minter (LienFiAuction contract) can mint
  * - Minting is triggered via the CRE mint workflow after off-chain property verification
  * - Name and symbol are set at construction time (e.g. "123 Main St Share" / "MAIN123")
  * - 18 decimals, standard ERC-20 otherwise
  * - Owner can update the minter address for deployment flexibility
  *
- * @notice Deployed by SealBidAuction.createPropertyToken(). The auction contract is
+ * @notice Deployed by LienFiAuction.createPropertyToken(). The auction contract is
  * set as the minter at construction time and retains exclusive mint rights.
  */
-contract SealBidRWAToken is ERC20, Ownable {
+contract LienFiRWAToken is ERC20, Ownable {
     address public minter;
-    error SealBidRWAToken__NeedsNonZeroAddress();
-    error SealBidRWAToken__MinterNotAuthorized();
+    error LienFiRWAToken__NeedsNonZeroAddress();
+    error LienFiRWAToken__MinterNotAuthorized();
 
     event MinterUpdated(address indexed oldMinter, address indexed newMinter);
 
@@ -60,7 +60,7 @@ contract SealBidRWAToken is ERC20, Ownable {
 
     function setMinter(address _minter) external onlyOwner {
         if (_minter == address(0)) {
-            revert SealBidRWAToken__NeedsNonZeroAddress();
+            revert LienFiRWAToken__NeedsNonZeroAddress();
         }
         emit MinterUpdated(minter, _minter);
         minter = _minter;
@@ -68,7 +68,7 @@ contract SealBidRWAToken is ERC20, Ownable {
 
     function mint(address to, uint256 amount) external {
         if (msg.sender != minter) {
-            revert SealBidRWAToken__MinterNotAuthorized();
+            revert LienFiRWAToken__MinterNotAuthorized();
         }
         _mint(to, amount);
     }

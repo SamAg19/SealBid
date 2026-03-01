@@ -4,7 +4,7 @@ import { ethers } from "ethers";
 const CONTRACT_ABI = [
   "function poolBalance(address, address) view returns (uint256)",
   "function lockExpiry(address) view returns (uint256)",
-  "function auctions(bytes32) view returns (address seller, address tokenAddress, uint256 shareAmount, uint256 deadline, uint256 reservePrice, bool settled, address winner, uint256 settledPrice)",
+  "function auctions(bytes32) view returns (address seller, uint256 tokenId, uint256 deadline, uint256 reservePrice, bool settled, address winner, uint256 settledPrice)",
 ];
 
 function getContract(): ethers.Contract {
@@ -31,8 +31,7 @@ export async function getLockExpiry(bidder: string): Promise<bigint> {
 
 export interface AuctionOnChain {
   seller: string;
-  tokenAddress: string;  // property ERC-20 deployed by the auction contract
-  shareAmount: bigint;   // total property share tokens in escrow
+  tokenId: bigint;       // PropertyNFT token held in escrow
   deadline: bigint;
   reservePrice: bigint;  // USDC (6 decimals)
   settled: boolean;
@@ -47,12 +46,11 @@ export async function getAuctionOnChain(
   const result = await contract.auctions(auctionId);
   return {
     seller: result[0],
-    tokenAddress: result[1],
-    shareAmount: result[2],
-    deadline: result[3],
-    reservePrice: result[4],
-    settled: result[5],
-    winner: result[6],
-    settledPrice: result[7],
+    tokenId: result[1],
+    deadline: result[2],
+    reservePrice: result[3],
+    settled: result[4],
+    winner: result[5],
+    settledPrice: result[6],
   };
 }

@@ -1,4 +1,9 @@
 import { Router, Request, Response } from "express";
+import { keccak256, AbiCoder } from "ethers";
+import {
+  getNextTokenId,
+  storeProperty,
+} from "../lib/store";
 
 const router = Router();
 
@@ -48,40 +53,36 @@ const propertyRegistry: Map<string, Property> = new Map([
   ],
 ]);
 
+// Secret used to make metadataHash unpredictable — in production this lives in CRE enclave
+const COMMITMENT_SECRET = "lienfi-demo-secret-2024";
+
 /**
  * POST /verify-property
  *
- * Called via Confidential HTTP from the CRE create-auction workflow.
+ * Called via Confidential HTTP from the CRE workflow.
  * Verifies that a property exists, has a clear title, and hasn't already been tokenized.
- * Returns the share amount (18-decimal scaled) the workflow should mint.
+ * Returns a tokenId and metadataHash (keccak256 of property details) for NFT minting.
  *
  * Body: {
  *   propertyId: string,      // e.g. "PROP-001"
- *   fractionBps: number,     // basis points to tokenize (1-10000, e.g. 2500 = 25%)
  *   sellerAddress: string    // Ethereum address of the property owner
  * }
  *
  * Returns: {
  *   valid: boolean,
- *   shareAmount: string,      // uint256 decimal string, 18-decimal scaled
+ *   tokenId: number,          // assigned token ID
+ *   metadataHash: string,     // keccak256(address + appraisedValue + titleDeed + secret)
  *   appraisedValue: string,   // total property value in USD
  *   message: string
  * }
  */
 router.post("/", (req: Request, res: Response): void => {
-  const { propertyId, fractionBps, sellerAddress } = req.body;
+  const { propertyId, sellerAddress } = req.body;
 
   // --- Validate required fields ---
-  if (!propertyId || fractionBps === undefined || !sellerAddress) {
+  if (!propertyId || !sellerAddress) {
     res.status(400).json({
-      error: "Missing required fields: propertyId, fractionBps, sellerAddress",
-    });
-    return;
-  }
-
-  if (typeof fractionBps !== "number" || fractionBps < 1 || fractionBps > 10000) {
-    res.status(400).json({
-      error: "fractionBps must be a number between 1 and 10000",
+      error: "Missing required fields: propertyId, sellerAddress",
     });
     return;
   }
@@ -92,7 +93,8 @@ router.post("/", (req: Request, res: Response): void => {
   if (!property) {
     res.status(200).json({
       valid: false,
-      shareAmount: "0",
+      tokenId: 0,
+      metadataHash: "0x",
       appraisedValue: "0",
       message: `Property ${propertyId} not found in registry`,
     });
@@ -102,7 +104,8 @@ router.post("/", (req: Request, res: Response): void => {
   if (!property.ownerVerified) {
     res.status(200).json({
       valid: false,
-      shareAmount: "0",
+      tokenId: 0,
+      metadataHash: "0x",
       appraisedValue: property.appraisedValueUsd.toString(),
       message: "Property owner not verified — title deed pending clearance",
     });
@@ -112,33 +115,46 @@ router.post("/", (req: Request, res: Response): void => {
   if (property.tokenized) {
     res.status(200).json({
       valid: false,
-      shareAmount: "0",
+      tokenId: 0,
+      metadataHash: "0x",
       appraisedValue: property.appraisedValueUsd.toString(),
       message: "Property already tokenized — cannot tokenize twice",
     });
     return;
   }
 
-  // --- Compute share amount (18-decimal scaled) ---
-  // shareAmount = floor(appraisedValueUsd * fractionBps / 10000) * 1e18
-  const fractionalValueUsd = Math.floor(
-    (property.appraisedValueUsd * fractionBps) / 10000
+  // --- Compute metadataHash ---
+  // keccak256(propertyAddress + appraisedValue + titleDeedNumber + secret)
+  const abiCoder = AbiCoder.defaultAbiCoder();
+  const packed = abiCoder.encode(
+    ["string", "uint256", "string", "string"],
+    [property.address, property.appraisedValueUsd, property.titleDeedNumber, COMMITMENT_SECRET]
   );
-  // Use BigInt to avoid floating point issues at 1e18 scale
-  const shareAmount = (BigInt(fractionalValueUsd) * BigInt(1e18)).toString();
+  const metadataHash = keccak256(packed);
 
-  // --- Mark property as tokenized (prevents double-tokenization) ---
+  // --- Assign tokenId and store ---
+  const tokenId = getNextTokenId();
   property.tokenized = true;
 
+  storeProperty({
+    tokenId,
+    propertyId: property.propertyId,
+    address: property.address,
+    appraisedValueUsd: property.appraisedValueUsd,
+    ownerAddress: sellerAddress,
+    metadataHash,
+  });
+
   console.log(
-    `[VERIFY-PROPERTY] propertyId=${propertyId} fractionBps=${fractionBps} seller=${sellerAddress} shareAmount=${shareAmount}`
+    `[VERIFY-PROPERTY] propertyId=${propertyId} seller=${sellerAddress} tokenId=${tokenId} metadataHash=${metadataHash}`
   );
 
   res.status(200).json({
     valid: true,
-    shareAmount,
+    tokenId,
+    metadataHash,
     appraisedValue: property.appraisedValueUsd.toString(),
-    message: `Property ${propertyId} (${property.address}) verified. Tokenizing ${fractionBps / 100}% = $${fractionalValueUsd.toLocaleString()} USD`,
+    message: `Property ${propertyId} (${property.address}) verified. TokenId=${tokenId}`,
   });
 });
 
